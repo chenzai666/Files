@@ -42,12 +42,16 @@ namespace Files.App.ViewModels.Previews
 		HWND _hWnd = HWND.Null;
 		bool _isOfficePreview = false;
 		bool _unloaded;
+		readonly bool _useQuickLook;
+		EmbeddedQuickLookSession? _quickLookSession;
+		public event EventHandler? PreviewFailed;
 		unsafe char* _pszClassName;
 
 		// Constructor
 
-		public ShellPreviewViewModel(ListedItem item) : base(item)
+		public ShellPreviewViewModel(ListedItem item, bool useQuickLook = false) : base(item)
 		{
+			_useQuickLook = useQuickLook;
 		}
 
 		// Methods
@@ -95,6 +99,13 @@ namespace Files.App.ViewModels.Previews
 				PInvoke.SetWindowPos(_hWnd, new(0), size.left, size.top, size.Width, size.Height, SET_WINDOW_POS_FLAGS.SWP_NOACTIVATE);
 
 			_previewHandler?.ResetBounds(new(0, 0, size.Width, size.Height));
+			if (_useQuickLook && _hWnd != HWND.Null)
+			{
+				var child = PInvoke.GetWindow(_hWnd, GET_WINDOW_CMD.GW_CHILD);
+				if (child != HWND.Null)
+					PInvoke.SetWindowPos(child, HWND.Null, 0, 0, size.Width, size.Height,
+						SET_WINDOW_POS_FLAGS.SWP_NOZORDER | SET_WINDOW_POS_FLAGS.SWP_NOACTIVATE);
+			}
 
 			if (_contentExternalOutputLink is not null)
 				_contentExternalOutputLink.PlacementVisual.Size = new(size.Width, size.Height);
@@ -102,7 +113,7 @@ namespace Files.App.ViewModels.Previews
 
 		private unsafe LRESULT WndProc(HWND hwnd, uint msg, WPARAM wParam, LPARAM lParam)
 		{
-			if (msg is PInvoke.WM_CREATE)
+			if (msg is PInvoke.WM_CREATE && !_useQuickLook)
 			{
 				var clsid = FindPreviewHandlerFor(Item.FileExtension!, hwnd);
 
@@ -185,6 +196,34 @@ namespace Files.App.ViewModels.Previews
 			_ = ChildWindowToXaml(parent, presenter);
 		}
 
+		public async Task StartQuickLookAsync(UIElement presenter)
+		{
+			if (!_useQuickLook || _unloaded)
+				return;
+			try
+			{
+				_quickLookSession = new EmbeddedQuickLookSession();
+				_quickLookSession.Exited += QuickLook_Exited;
+				await _quickLookSession.StartAsync((nint)_hWnd, Item.ItemPath!,
+					presenter is FrameworkElement element && element.ActualTheme == ElementTheme.Dark);
+			}
+			catch (Exception ex)
+			{
+				if (!_unloaded)
+				{
+					App.Logger.LogWarning("Embedded QuickLook failed: {ErrorType}", ex.GetType().Name);
+					PreviewFailed?.Invoke(this, EventArgs.Empty);
+				}
+			}
+		}
+
+		private void QuickLook_Exited(object? sender, EventArgs e)
+			=> MainWindow.Instance.DispatcherQueue.TryEnqueue(() =>
+			{
+				if (!_unloaded)
+					PreviewFailed?.Invoke(this, EventArgs.Empty);
+			});
+
 		private unsafe bool ChildWindowToXaml(nint parent, UIElement presenter)
 		{
 			D3D_DRIVER_TYPE[] driverTypes =
@@ -262,6 +301,12 @@ namespace Files.App.ViewModels.Previews
 			if (_unloaded)
 				return;
 			_unloaded = true;
+			if (_quickLookSession is not null)
+			{
+				_quickLookSession.Exited -= QuickLook_Exited;
+				_quickLookSession.Dispose();
+				_quickLookSession = null;
+			}
 
 			if (_hWnd != HWND.Null)
 			{

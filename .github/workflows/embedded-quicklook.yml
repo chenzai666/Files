@@ -1,0 +1,50 @@
+name: 构建内嵌 QuickLook 测试版
+on:
+  push:
+    branches: [feature/embedded-quicklook]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: embedded-quicklook-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - uses: microsoft/setup-msbuild@v3
+      - name: 构建隔离预览组件
+        shell: pwsh
+        run: ./integrations/Build-QuickLook.ps1
+      - name: 构建独立测试安装包
+        shell: pwsh
+        run: >-
+          msbuild src/Files.App/Files.App.csproj -restore
+          -p:Configuration=Debug -p:Platform=x64
+          -p:AppxBundle=Never -p:GenerateAppxPackageOnBuild=true
+          -p:UapAppxPackageBuildMode=SideloadOnly
+          -p:AppxPackageSigningEnabled=false
+          -p:AppxPackageDir=${{ github.workspace }}\artifacts\packages\
+          -v:quiet -clp:ErrorsOnly
+      - name: 保存对应源码和许可证
+        shell: pwsh
+        run: |
+          git archive HEAD -o artifacts/files-source.zip
+          git -C third_party/QuickLook archive HEAD -o ../../artifacts/quicklook-source.zip
+          Copy-Item integrations/README.md artifacts/说明.md
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Files-QuickLook-x64-unsigned
+          path: |
+            artifacts/packages/
+            artifacts/files-source.zip
+            artifacts/quicklook-source.zip
+            artifacts/说明.md
+          if-no-files-found: error

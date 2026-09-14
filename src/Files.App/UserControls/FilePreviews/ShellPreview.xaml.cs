@@ -22,7 +22,7 @@ namespace Files.App.UserControls.FilePreviews
 		}
 
 		[DynamicWindowsRuntimeCast(typeof(FrameworkElement))]
-		private void PreviewHost_Loaded(object sender, RoutedEventArgs e)
+		private async void PreviewHost_Loaded(object sender, RoutedEventArgs e)
 		{
 			ViewModel.LoadPreview(contentPresenter);
 			ViewModel.SizeChanged(GetPreviewSize());
@@ -32,6 +32,7 @@ namespace Files.App.UserControls.FilePreviews
 				element.SizeChanged += PreviewHost_SizeChanged;
 				element.PointerEntered += PreviewHost_PointerEntered;
 			}
+			await ViewModel.StartQuickLookAsync(contentPresenter);
 		}
 
 		private void PreviewHost_SizeChanged(object sender, SizeChangedEventArgs e)

@@ -1,0 +1,3 @@
+[submodule "third_party/QuickLook"]
+	path = third_party/QuickLook
+	url = https://github.com/QL-Win/QuickLook.git

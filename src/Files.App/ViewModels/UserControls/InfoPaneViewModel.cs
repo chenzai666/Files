@@ -131,6 +131,8 @@ namespace Files.App.ViewModels.UserControls
 				var oldType = previewPaneContent?.GetType()?.Name;
 				var newType = value?.GetType()?.Name;
 				App.Logger.LogDebug($"PreviewPaneContent changing: {oldType} -> {newType}");
+				if (!ReferenceEquals(previewPaneContent, value) && previewPaneContent is ShellPreview previousPreview)
+					previousPreview.UnloadPreview();
 				SetProperty(ref previewPaneContent, value);
 			}
 		}
@@ -246,7 +248,7 @@ namespace Files.App.ViewModels.UserControls
 			PreviewPaneState = SelectedDriveItem is not null ? PreviewPaneStates.DriveStorageDetailsAvailable : PreviewPaneStates.PreviewAndDetailsAvailable;
 		}
 
-		private async Task<UserControl?> GetBuiltInPreviewControlAsync(ListedItem item, bool downloadItem)
+		private async Task<UserControl?> GetBuiltInPreviewControlAsync(ListedItem item, bool downloadItem, bool useQuickLook = true)
 		{
 			ShowCloudItemButton = false;
 
@@ -306,6 +308,35 @@ namespace Files.App.ViewModels.UserControls
 			}
 
 			var ext = item.FileExtension.ToLowerInvariant();
+
+			if (useQuickLook && EmbeddedQuickLookSession.IsAvailable &&
+				!item.IsFtpItem && contentPageContext.PageType != ContentPageTypes.ZipFolder &&
+				item.ItemPath is string itemPath && System.IO.Path.IsPathFullyQualified(itemPath) &&
+				!FileExtensionHelpers.IsExecutableFile(ext))
+			{
+				var model = new ShellPreviewViewModel(item, useQuickLook: true);
+				await model.LoadAsync();
+				var embedded = new ShellPreview(model);
+				model.PreviewFailed += async (_, _) =>
+				{
+					if (!ReferenceEquals(PreviewPaneContent, embedded))
+						return;
+					embedded.UnloadPreview();
+					try
+					{
+						var fallback = await GetBuiltInPreviewControlAsync(item, downloadItem, useQuickLook: false);
+						if (ReferenceEquals(PreviewPaneContent, embedded))
+							PreviewPaneContent = fallback;
+					}
+					catch (Exception ex)
+					{
+						App.Logger.LogWarning("Preview fallback failed: {ErrorType}", ex.GetType().Name);
+						if (ReferenceEquals(PreviewPaneContent, embedded))
+							PreviewPaneContent = null;
+					}
+				};
+				return embedded;
+			}
 
 			if (!item.IsFtpItem &&
 				contentPageContext.PageType != ContentPageTypes.ZipFolder &&
