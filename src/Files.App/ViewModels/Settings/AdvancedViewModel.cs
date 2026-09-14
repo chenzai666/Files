@@ -132,18 +132,26 @@ namespace Files.App.ViewModels.Settings
 
 			try
 			{
-				using (var regProc = Process.Start("regsvr32.exe", @$"/s /n {(!IsSetAsOpenFileDialog ? "/u" : "")} /i:user ""{Path.Combine(destFolder, "Files.App.OpenDialog32.dll")}"""))
-					await regProc.WaitForExitAsync();
-				using (var regProc = Process.Start("regsvr32.exe", @$"/s /n {(!IsSetAsOpenFileDialog ? "/u" : "")} /i:user ""{Path.Combine(destFolder, "Files.App.OpenDialog64.dll")}"""))
-					await regProc.WaitForExitAsync();
-				using (var regProc = Process.Start("regsvr32.exe", @$"/s /n {(!IsSetAsOpenFileDialog ? "/u" : "")} /i:user ""{Path.Combine(destFolder, "Files.App.OpenDialogARM64.dll")}"""))
-					await regProc.WaitForExitAsync();
-				using (var regProc = Process.Start("regsvr32.exe", @$"/s /n {(!IsSetAsOpenFileDialog ? "/u" : "")} /i:user ""{Path.Combine(destFolder, "Files.App.SaveDialog32.dll")}"""))
-					await regProc.WaitForExitAsync();
-				using (var regProc = Process.Start("regsvr32.exe", @$"/s /n {(!IsSetAsOpenFileDialog ? "/u" : "")} /i:user ""{Path.Combine(destFolder, "Files.App.SaveDialog64.dll")}"""))
-					await regProc.WaitForExitAsync();
-				using (var regProc = Process.Start("regsvr32.exe", @$"/s /n {(!IsSetAsOpenFileDialog ? "/u" : "")} /i:user ""{Path.Combine(destFolder, "Files.App.SaveDialogARM64.dll")}"""))
-					await regProc.WaitForExitAsync();
+				var componentNames = new[]
+				{
+					"Files.App.OpenDialog32.dll",
+					"Files.App.OpenDialog64.dll",
+					"Files.App.OpenDialogARM64.dll",
+					"Files.App.SaveDialog32.dll",
+					"Files.App.SaveDialog64.dll",
+					"Files.App.SaveDialogARM64.dll",
+				};
+
+				foreach (var componentName in componentNames)
+				{
+					var componentPath = Path.Combine(destFolder, componentName);
+					if (!File.Exists(componentPath))
+						continue;
+
+					using var regProc = Process.Start("regsvr32.exe", @$"/s /n {(!IsSetAsOpenFileDialog ? "/u" : "")} /i:user ""{componentPath}""");
+					if (regProc is not null)
+						await regProc.WaitForExitAsync();
+				}
 			}
 			catch
 			{
