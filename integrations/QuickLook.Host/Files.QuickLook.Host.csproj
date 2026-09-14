@@ -18,4 +18,10 @@
     <PackageReference Include="System.Runtime.CompilerServices.Unsafe" Version="6.1.2" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3912.50" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\..\third_party\QuickLook\QuickLook\Plugin\InfoPanel\*.cs"
+             Link="QuickLook.InfoPanel\%(Filename)%(Extension)" />
+    <Page Include="..\..\third_party\QuickLook\QuickLook\Plugin\InfoPanel\InfoPanel.xaml"
+          Link="QuickLook.InfoPanel\InfoPanel.xaml" />
+  </ItemGroup>
 </Project>

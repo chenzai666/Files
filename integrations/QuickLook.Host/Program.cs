@@ -3,6 +3,7 @@ using QuickLook.Common.Plugin;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -47,7 +48,7 @@ internal static class Program
 
             // Paths travel over the inherited pipe, never through a shell or public IPC endpoint.
             var path = Console.ReadLine();
-            if (string.IsNullOrEmpty(path) || !Path.IsPathRooted(path) || !File.Exists(path))
+            if (string.IsNullOrEmpty(path) || !Path.IsPathRooted(path) || (!File.Exists(path) && !Directory.Exists(path)))
                 return 3;
 
             app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
@@ -74,6 +75,7 @@ internal static class Program
             if (viewer == null)
                 return 4;
 
+            var isFolder = Directory.Exists(path);
             var window = new Window
             {
                 WindowStyle = popup ? WindowStyle.SingleBorderWindow : WindowStyle.None,
@@ -81,9 +83,9 @@ internal static class Program
                 ShowInTaskbar = popup,
                 ShowActivated = popup,
                 WindowStartupLocation = popup ? WindowStartupLocation.CenterOwner : WindowStartupLocation.Manual,
-                Title = popup ? $"QuickLook - {Path.GetFileName(path)}" : "Files QuickLook",
-                Width = 800,
-                Height = 600,
+                Title = popup ? $"QuickLook - {GetDisplayName(path)}" : "Files QuickLook",
+                Width = isFolder ? 453 : 800,
+                Height = isFolder ? 172 : 600,
                 Background = args[2] == "dark" ? new SolidColorBrush(Color.FromRgb(32, 32, 32)) : Brushes.White
             };
             app.MainWindow = window;
@@ -152,28 +154,68 @@ internal static class Program
 
     private static IViewer FindViewer(string runtime, string path)
     {
-        // This list deliberately excludes installers, executable previews and arbitrary user plugins.
-        string[] names = { "ImageViewer", "PDFViewer", "FontViewer", "MarkdownViewer", "TextViewer" };
-        foreach (var name in names)
+        var plugins = new List<IViewer>();
+        var pluginRoot = Path.Combine(runtime, "QuickLook.Plugin");
+        if (Directory.Exists(pluginRoot))
         {
-            var file = Path.Combine(runtime, "QuickLook.Plugin", "QuickLook.Plugin." + name, "QuickLook.Plugin." + name + ".dll");
-            if (!File.Exists(file))
-                continue;
-            IViewer candidate = null;
+            // Match QuickLook's plugin discovery, but keep the search rooted in
+            // the package's read-only runtime. User plugin folders are excluded.
+            foreach (var file in Directory.GetFiles(pluginRoot, "QuickLook.Plugin.*.dll", SearchOption.AllDirectories))
+            {
+                try
+                {
+                    foreach (var type in Assembly.LoadFrom(file).GetExportedTypes()
+                        .Where(t => !t.IsInterface && !t.IsAbstract && typeof(IViewer).IsAssignableFrom(t)))
+                    {
+                        if (Activator.CreateInstance(type) is IViewer candidate)
+                            plugins.Add(candidate);
+                    }
+                }
+                catch (Exception ex) { Console.Error.WriteLine(ex); }
+            }
+        }
+
+        plugins.Sort((left, right) => right.Priority.CompareTo(left.Priority));
+        foreach (var plugin in plugins)
+        {
             try
             {
-                var type = Assembly.LoadFrom(file).GetExportedTypes().First(t => !t.IsAbstract && typeof(IViewer).IsAssignableFrom(t));
-                candidate = (IViewer)Activator.CreateInstance(type);
-                if (candidate.CanHandle(path))
-                {
-                    candidate.Init();
-                    return candidate;
-                }
+                plugin.Init();
             }
-            catch (Exception ex) { Console.Error.WriteLine(ex); }
-            try { candidate?.Cleanup(); } catch { }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine(ex);
+            }
         }
-        return null;
+
+        foreach (var plugin in plugins)
+        {
+            try
+            {
+                if (plugin.CanHandle(path))
+                    return plugin;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine(ex);
+                try { plugin.Cleanup(); } catch { }
+            }
+        }
+
+        // QuickLook's built-in fallback shows metadata for folders and files
+        // that do not have a specialized viewer.
+        var infoPanel = new global::QuickLook.Plugin.InfoPanel.Plugin();
+        infoPanel.Init();
+        return infoPanel;
+    }
+
+    private static string GetDisplayName(string path)
+    {
+        var trimmed = path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (trimmed.Length == 0)
+            return path;
+
+        return Path.GetFileName(trimmed) is { Length: > 0 } name ? name : trimmed;
     }
 
     private static void AddResources()
