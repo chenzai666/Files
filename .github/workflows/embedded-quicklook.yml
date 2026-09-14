@@ -56,6 +56,12 @@ jobs:
           foreach ($file in $required) {
             if (-not (Test-Path -LiteralPath $file)) { throw "缺少原生集成组件: $file" }
           }
+          Compress-Archive -Path 'src/Files.App/Assets/FilesOpenDialog/Files.App.*' -DestinationPath 'artifacts/native-dialog-components.zip' -Force
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Files-QuickLook-native-dialog-components
+          path: artifacts/native-dialog-components.zip
+          if-no-files-found: error
       - name: 构建独立测试安装包
         shell: pwsh
         run: |
