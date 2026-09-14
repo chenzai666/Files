@@ -43,6 +43,7 @@ namespace Files.App.ViewModels.Previews
 		bool _isOfficePreview = false;
 		bool _unloaded;
 		readonly bool _useQuickLook;
+		bool _surfaceReady;
 		EmbeddedQuickLookSession? _quickLookSession;
 		public event EventHandler? PreviewFailed;
 		unsafe char* _pszClassName;
@@ -193,7 +194,7 @@ namespace Files.App.ViewModels.Previews
 					hInst);
 			}
 
-			_ = ChildWindowToXaml(parent, presenter);
+			_surfaceReady = ChildWindowToXaml(parent, presenter);
 		}
 
 		public async Task StartQuickLookAsync(UIElement presenter)
@@ -202,6 +203,8 @@ namespace Files.App.ViewModels.Previews
 				return;
 			try
 			{
+				if (!_surfaceReady)
+					throw new InvalidOperationException("The embedded preview surface could not be created.");
 				_quickLookSession = new EmbeddedQuickLookSession();
 				_quickLookSession.Exited += QuickLook_Exited;
 				await _quickLookSession.StartAsync((nint)_hWnd, Item.ItemPath!,

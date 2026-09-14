@@ -23,7 +23,8 @@ $form.StartPosition = 'CenterScreen'
 $form.Show()
 $start = New-Object Diagnostics.ProcessStartInfo
 $start.FileName = Join-Path $repoRoot 'artifacts/quicklook/Files.QuickLook.Host.exe'
-$start.Arguments = '{0} {1} light' -f $form.Handle.ToInt64(), $PID
+$snapshot = Join-Path $testDir ([IO.Path]::GetFileNameWithoutExtension($SamplePath) + [IO.Path]::GetExtension($SamplePath) + '.preview.png')
+$start.Arguments = '{0} {1} light --diagnostic-snapshot "{2}"' -f $form.Handle.ToInt64(), $PID, $snapshot
 $start.UseShellExecute = $false
 $start.CreateNoWindow = $true
 $start.RedirectStandardInput = $true
@@ -49,12 +50,7 @@ try {
     if ($child.HasExited) { throw 'Host exited after READY.' }
     $child.Refresh()
     Write-Output ('WorkingSetMB={0:N1}; PrivateMB={1:N1}' -f ($child.WorkingSet64 / 1MB), ($child.PrivateMemorySize64 / 1MB))
-    $capture = New-Object Drawing.Bitmap $form.Width, $form.Height
-    $graphics = [Drawing.Graphics]::FromImage($capture)
-    $graphics.CopyFromScreen($form.Left, $form.Top, 0, 0, $capture.Size)
-    $capture.Save((Join-Path $testDir 'preview.png'))
-    $graphics.Dispose()
-    $capture.Dispose()
+    if (!(Test-Path -LiteralPath $snapshot)) { throw 'Host did not render its diagnostic snapshot.' }
     $child.StandardInput.Close()
     if (!$child.WaitForExit(3000)) { throw 'Host did not exit after stdin closed.' }
     Write-Output ('ExitCode={0}' -f $child.ExitCode)

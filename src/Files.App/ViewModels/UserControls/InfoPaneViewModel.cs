@@ -312,6 +312,7 @@ namespace Files.App.ViewModels.UserControls
 			if (useQuickLook && EmbeddedQuickLookSession.IsAvailable &&
 				!item.IsFtpItem && contentPageContext.PageType != ContentPageTypes.ZipFolder &&
 				item.ItemPath is string itemPath && System.IO.Path.IsPathFullyQualified(itemPath) &&
+				!FileExtensionHelpers.IsAudioFile(ext) && !FileExtensionHelpers.IsVideoFile(ext) &&
 				!FileExtensionHelpers.IsExecutableFile(ext))
 			{
 				var model = new ShellPreviewViewModel(item, useQuickLook: true);

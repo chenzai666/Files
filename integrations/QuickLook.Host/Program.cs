@@ -8,9 +8,10 @@ using System.Reflection;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Data;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.UI.WindowsAndMessaging;
@@ -27,7 +28,7 @@ internal static class Program
     {
         try
         {
-            if (args.Length != 3 || !long.TryParse(args[0], out var handle) ||
+            if ((args.Length != 3 && (args.Length != 5 || args[3] != "--diagnostic-snapshot")) || !long.TryParse(args[0], out var handle) ||
                 !int.TryParse(args[1], out var processId))
                 return 2;
 
@@ -80,9 +81,17 @@ internal static class Program
                 Background = args[2] == "dark" ? new SolidColorBrush(Color.FromRgb(32, 32, 32)) : Brushes.White
             };
             app.MainWindow = window;
-            var context = new ContextObject { Source = window };
+            var context = new ContextObject { Source = window, Theme = args[2] == "dark" ? Themes.Dark : Themes.Light };
             var content = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
-            content.SetBinding(ContentControl.ContentProperty, new Binding(nameof(ContextObject.ViewerContent)) { Source = context });
+            context.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(ContextObject.ViewerContent))
+                    content.Dispatcher.Invoke(() =>
+                    {
+                        content.Content = context.ViewerContent;
+                        content.UpdateLayout();
+                    });
+            };
             window.Content = content;
             window.Closed += (_, _) => app.Shutdown();
             window.SourceInitialized += (_, _) => Embed(window, parent);
@@ -92,6 +101,20 @@ internal static class Program
                 {
                     viewer.Prepare(path, context);
                     viewer.View(path, context);
+                    if (args.Length == 5)
+                    {
+                        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+                        timer.Tick += (_, _) =>
+                        {
+                            timer.Stop();
+                            var bitmap = new RenderTargetBitmap((int)window.ActualWidth, (int)window.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+                            bitmap.Render(window);
+                            var encoder = new PngBitmapEncoder();
+                            encoder.Frames.Add(BitmapFrame.Create(bitmap));
+                            using (var output = File.Create(args[4])) encoder.Save(output);
+                        };
+                        timer.Start();
+                    }
                     Console.WriteLine("READY");
                     Console.Out.Flush();
                 }
@@ -118,7 +141,7 @@ internal static class Program
     private static IViewer FindViewer(string runtime, string path)
     {
         // This list deliberately excludes installers, executable previews and arbitrary user plugins.
-        string[] names = { "ImageViewer", "PDFViewer", "TextViewer", "VideoViewer", "ArchiveViewer", "FontViewer", "MarkdownViewer" };
+        string[] names = { "ImageViewer", "PDFViewer", "FontViewer", "MarkdownViewer", "TextViewer" };
         foreach (var name in names)
         {
             var file = Path.Combine(runtime, "QuickLook.Plugin", "QuickLook.Plugin." + name, "QuickLook.Plugin." + name + ".dll");
@@ -164,6 +187,8 @@ internal static class Program
         PInvoke.SetWindowLong(hwnd, WINDOW_LONG_PTR_INDEX.GWL_STYLE,
             (int)(WINDOW_STYLE.WS_CHILD | WINDOW_STYLE.WS_VISIBLE | WINDOW_STYLE.WS_CLIPSIBLINGS));
         PInvoke.SetParent(hwnd, parent);
+        if (PInvoke.GetParent(hwnd) != parent)
+            throw new InvalidOperationException("The preview window could not be embedded.");
         PInvoke.GetClientRect(parent, out var rect);
         PInvoke.SetWindowPos(hwnd, HWND.Null, 0, 0, Math.Max(1, rect.Width), Math.Max(1, rect.Height),
             SET_WINDOW_POS_FLAGS.SWP_NOZORDER | SET_WINDOW_POS_FLAGS.SWP_NOACTIVATE | SET_WINDOW_POS_FLAGS.SWP_FRAMECHANGED);
