@@ -174,5 +174,12 @@
         <MSBuild Projects="..\Files.App.Server\Files.App.Server.csproj"
                  Targets="Build"
                  Properties="Configuration=$(Configuration);Platform=$(Platform)" />
+        <ItemGroup>
+            <Content Include="..\Files.App.Server\bin\$(Platform)\$(Configuration)\$(TargetFramework)\win-$(Platform)\**\*">
+                <Link>Files.App.Server\%(RecursiveDir)%(Filename)%(Extension)</Link>
+                <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+                <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+            </Content>
+        </ItemGroup>
     </Target>
 </Project>

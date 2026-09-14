@@ -80,52 +80,11 @@ namespace Files.App
 
 			async Task ActivateAsync()
 			{
-				// Build the DI container off-thread while the window initializes
-				var appModel = AppModel;
-				var servicesTask = Task.Run(() =>
-				{
-					try
-					{
-						var provider = AppLifecycleHelper.ConfigureHost(appModel);
-
-						// Configure Ioc here so Ioc.Default-dependent constructions warm off-thread too
-						Ioc.Default.ConfigureServices(provider);
-
-						// Warm the settings file reads off the UI thread
-						_ = provider.GetRequiredService<IGeneralSettingsService>().LeaveAppRunning;
-						_ = provider.GetRequiredService<IAppearanceSettingsService>().AppThemeBackdropMaterial;
-
-						// Read through these statics by the action/context ctors warmed below
-						QuickAccessManager = provider.GetRequiredService<QuickAccessManager>();
-						HistoryWrapper = provider.GetRequiredService<StorageHistoryWrapper>();
-						FileTagsManager = provider.GetRequiredService<FileTagsManager>();
-						LibraryManager = provider.GetRequiredService<LibraryManager>();
-
-						// Warm every command and hotkey off-thread, below normal so window creation wins the cores
-						var previousPriority = Thread.CurrentThread.Priority;
-						Thread.CurrentThread.Priority = ThreadPriority.BelowNormal;
-						try
-						{
-							_ = provider.GetRequiredService<ICommandManager>();
-						}
-						catch (Exception)
-						{
-							// A command ctor that needs the UI thread aborts the warm-up; it runs on first use instead
-						}
-						finally
-						{
-							Thread.CurrentThread.Priority = previousPriority;
-						}
-
-						return provider;
-					}
-					catch (Exception)
-					{
-						// A UI-thread-only service ctor failed off-thread; rebuilt on the UI thread below
-						return null;
-					}
-				});
-
+				// 界面命令和服务可能访问 XAML 对象，必须在 UI 线程初始化。
+				var serviceProvider = AppLifecycleHelper.ConfigureHost(AppModel);
+				Ioc.Default.ConfigureServices(serviceProvider);
+				Logger = serviceProvider.GetRequiredService<ILogger<App>>();
+				Logger.LogInformation("Startup: services configured on UI thread");
 				// Get AppActivationArguments
 				var appActivationArguments = Microsoft.Windows.AppLifecycle.AppInstance.GetCurrent().GetActivatedEventArgs();
 				var isStartupTask = appActivationArguments.Data is Windows.ApplicationModel.Activation.IStartupTaskActivatedEventArgs;
@@ -146,14 +105,6 @@ namespace Files.App
 						SplashScreenLoadingTCS = new TaskCompletionSource();
 						MainWindow.Instance.ShowSplashScreen();
 					}
-				}
-
-				// Configure the DI (dependency injection) container
-				var serviceProvider = await servicesTask;
-				if (serviceProvider is null)
-				{
-					serviceProvider = AppLifecycleHelper.ConfigureHost(appModel);
-					Ioc.Default.ConfigureServices(serviceProvider);
 				}
 
 				// Configure Sentry
