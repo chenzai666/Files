@@ -23,6 +23,30 @@ jobs:
       - name: 构建隔离预览组件
         shell: pwsh
         run: ./integrations/Build-QuickLook.ps1
+      - name: 构建 Files 原生集成组件
+        shell: pwsh
+        run: |
+          $projects = @(
+            @{ Path = 'src/Files.App.Launcher/Files.App.Launcher.vcxproj'; Platform = 'x64' },
+            @{ Path = 'src/Files.App.OpenDialog/Files.App.OpenDialog.vcxproj'; Platform = 'x64' },
+            @{ Path = 'src/Files.App.OpenDialog/Files.App.OpenDialog.Win32.vcxproj'; Platform = 'Win32' },
+            @{ Path = 'src/Files.App.SaveDialog/Files.App.SaveDialog.vcxproj'; Platform = 'x64' },
+            @{ Path = 'src/Files.App.SaveDialog/Files.App.SaveDialog.Win32.vcxproj'; Platform = 'Win32' }
+          )
+          foreach ($project in $projects) {
+            msbuild $project.Path -t:Build -p:Configuration=Debug -p:Platform=$project.Platform -v:quiet -clp:ErrorsOnly
+            if ($LASTEXITCODE) { throw "原生组件构建失败: $($project.Path) [$($project.Platform)]" }
+          }
+          $required = @(
+            'src/Files.App/Assets/FilesOpenDialog/Files.App.Launcher.exe',
+            'src/Files.App/Assets/FilesOpenDialog/Files.App.OpenDialog64.dll',
+            'src/Files.App/Assets/FilesOpenDialog/Files.App.OpenDialog32.dll',
+            'src/Files.App/Assets/FilesOpenDialog/Files.App.SaveDialog64.dll',
+            'src/Files.App/Assets/FilesOpenDialog/Files.App.SaveDialog32.dll'
+          )
+          foreach ($file in $required) {
+            if (-not (Test-Path -LiteralPath $file)) { throw "缺少原生集成组件: $file" }
+          }
       - name: 构建独立测试安装包
         shell: pwsh
         run: |
