@@ -7,15 +7,19 @@ namespace Files.App.Services.PreviewPopupProviders
 	internal sealed partial class PreviewPopupService : ObservableObject, IPreviewPopupService
 	{
 		public async Task<IPreviewPopupProvider?> GetProviderAsync()
-		{			
+		{
+			// Built-in Space preview is always available (no QuickLook process).
+			if (await BuiltInPreviewPopupProvider.Instance.DetectAvailability())
+				return BuiltInPreviewPopupProvider.Instance;
+
 			if (await QuickLookProvider.Instance.DetectAvailability())
-				return await Task.FromResult<IPreviewPopupProvider>(QuickLookProvider.Instance);
+				return QuickLookProvider.Instance;
 			if (await SeerProProvider.Instance.DetectAvailability())
-				return await Task.FromResult<IPreviewPopupProvider>(SeerProProvider.Instance);
+				return SeerProProvider.Instance;
 			if (await PowerToysPeekProvider.Instance.DetectAvailability())
-				return await Task.FromResult<IPreviewPopupProvider>(PowerToysPeekProvider.Instance);
-			else
-				return null;
+				return PowerToysPeekProvider.Instance;
+
+			return null;
 		}
 	}
 }

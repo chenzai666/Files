@@ -1,6 +1,7 @@
 // Copyright (c) Files Community
 // Licensed under the MIT License.
 
+using Files.App.Helpers.Preview;
 using Files.App.UserControls.FilePreviews;
 using Files.App.ViewModels.Previews;
 using Files.Shared.Helpers;
@@ -248,144 +249,17 @@ namespace Files.App.ViewModels.UserControls
 
 		private async Task<UserControl?> GetBuiltInPreviewControlAsync(ListedItem item, bool downloadItem)
 		{
-			ShowCloudItemButton = false;
-
-			if (item.IsRecycleBinItem)
+			if (item.PrimaryItemAttribute == StorageItemTypes.Folder &&
+				contentPageContext.SelectedItems.Count == 0)
 			{
-				if (item.PrimaryItemAttribute == StorageItemTypes.Folder && !item.IsArchive)
-				{
-					var model = new FolderPreviewViewModel(item);
-					await model.LoadAsync();
-
-					return new FolderPreview(model);
-				}
-				else
-				{
-					var model = new BasicPreviewViewModel(item);
-					await model.LoadAsync();
-
-					return new BasicPreview(model);
-				}
+				item.FileTags ??= FileTagsHelper.ReadFileTag(item.ItemPath!);
 			}
 
-			if (item.IsShortcut)
-			{
-				var model = new ShortcutPreviewViewModel(item);
-				await model.LoadAsync();
-
-				return new BasicPreview(model);
-			}
-
-			if (FileExtensionHelpers.IsBrowsableZipFile(item.FileExtension, out _))
-			{
-				var model = new ArchivePreviewViewModel(item);
-				await model.LoadAsync();
-
-				return new BasicPreview(model);
-			}
-
-			if (item.PrimaryItemAttribute == StorageItemTypes.Folder)
-			{
-				var model = new FolderPreviewViewModel(item);
-				await model.LoadAsync();
-
-				if (contentPageContext.SelectedItems.Count == 0)
-					item.FileTags ??= FileTagsHelper.ReadFileTag(item.ItemPath!);
-
-				return new FolderPreview(model);
-			}
-
-			if (item.FileExtension is null)
-				return null;
-
-			if (item.SyncStatusUI.SyncStatus is CloudDriveSyncStatus.FileOnline && !downloadItem)
-			{
-				ShowCloudItemButton = true;
-
-				return null;
-			}
-
-			var ext = item.FileExtension.ToLowerInvariant();
-
-			if (!item.IsFtpItem &&
-				contentPageContext.PageType != ContentPageTypes.ZipFolder &&
-				(FileExtensionHelpers.IsAudioFile(ext) || FileExtensionHelpers.IsVideoFile(ext)))
-			{
-				var model = new MediaPreviewViewModel(item);
-				await model.LoadAsync();
-
-				return new MediaPreview(model);
-			}
-
-			if (FileExtensionHelpers.IsMarkdownFile(ext))
-			{
-				var model = new MarkdownPreviewViewModel(item);
-				await model.LoadAsync();
-
-				return new MarkdownPreview(model);
-			}
-
-			if (FileExtensionHelpers.IsImagePreviewFile(ext))
-			{
-				var model = new ImagePreviewViewModel(item);
-				await model.LoadAsync();
-
-				return new ImagePreview(model);
-			}
-
-			if (FileExtensionHelpers.IsTextFile(ext))
-			{
-				var model = new TextPreviewViewModel(item);
-				await model.LoadAsync();
-
-				return new TextPreview(model);
-			}
-
-			/*if (FileExtensionHelpers.IsPdfFile(ext))
-			{
-				var model = new PDFPreviewViewModel(item);
-				await model.LoadAsync();
-
-				return new PDFPreview(model);
-			}*/
-
-			/*if (FileExtensionHelpers.IsHtmlFile(ext))
-			{
-				var model = new HtmlPreviewViewModel(item);
-				await model.LoadAsync();
-
-				return new HtmlPreview(model);
-			}*/
-
-			if (FileExtensionHelpers.IsRichTextFile(ext))
-			{
-				var model = new RichTextPreviewViewModel(item);
-				await model.LoadAsync();
-
-				return new RichTextPreview(model);
-			}
-
-			if (CodePreviewViewModel.IsCodeFile(ext))
-			{
-				var model = new CodePreviewViewModel(item);
-				await model.LoadAsync();
-
-				return new CodePreview(model);
-			}
-
-			if (ShellPreviewViewModel.FindPreviewHandlerFor(item.FileExtension, 0) is not null &&
-				!FileExtensionHelpers.IsFontFile(item.FileExtension) &&
-				!FileExtensionHelpers.IsExecutableFile(item.FileExtension))
-			{
-				var model = new ShellPreviewViewModel(item);
-				await model.LoadAsync();
-
-				return new ShellPreview(model);
-			}
-
-			var control = await TextPreviewViewModel.TryLoadAsTextAsync(item);
-
-			return control ?? null;
+			return await BuiltInPreviewFactory.CreateAsync(
+				item,
+				downloadItem,
+				contentPageContext,
+				showCloud => ShowCloudItemButton = showCloud);
 		}
 
 		public async Task UpdateSelectedItemPreviewAsync(bool downloadItem = false)
