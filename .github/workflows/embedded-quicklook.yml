@@ -41,8 +41,10 @@ jobs:
             @{ Path = 'src/Files.App.SaveDialog/Files.App.SaveDialog.Win32.vcxproj'; Platform = 'Win32' }
           )
           foreach ($project in $projects) {
-            msbuild $project.Path -t:Build -p:Configuration=Debug -p:Platform=$project.Platform -p:WindowsTargetPlatformVersion=$sdkVersion -p:TargetPlatformVersion=$sdkVersion -v:quiet -clp:ErrorsOnly
-            if ($LASTEXITCODE) { throw "原生组件构建失败: $($project.Path) [$($project.Platform)]" }
+            $projectPath = $project.Path
+            $projectPlatform = $project.Platform
+            msbuild $projectPath -t:Build -p:Configuration=Debug "-p:Platform=$projectPlatform" "-p:WindowsTargetPlatformVersion=$sdkVersion" "-p:TargetPlatformVersion=$sdkVersion" -v:quiet -clp:ErrorsOnly
+            if ($LASTEXITCODE) { throw "原生组件构建失败: $projectPath [$projectPlatform]" }
           }
           $required = @(
             'src/Files.App/Assets/FilesOpenDialog/Files.App.Launcher.exe',
