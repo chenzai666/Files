@@ -28,6 +28,11 @@ jobs:
         run: |
           nuget restore src/Files.App.Launcher/Files.App.Launcher.vcxproj -SolutionDirectory ${{ github.workspace }} -Verbosity quiet
           if ($LASTEXITCODE) { throw 'Files.App.Launcher NuGet 还原失败' }
+          $sdkRoot = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\Lib'
+          $sdk = Get-ChildItem -LiteralPath $sdkRoot -Directory | Sort-Object Name | Select-Object -Last 1
+          if ($null -eq $sdk) { throw "找不到 Windows SDK: $sdkRoot" }
+          $sdkVersion = $sdk.Name
+          Write-Host "使用 Windows SDK $sdkVersion"
           $projects = @(
             @{ Path = 'src/Files.App.Launcher/Files.App.Launcher.vcxproj'; Platform = 'x64' },
             @{ Path = 'src/Files.App.OpenDialog/Files.App.OpenDialog.vcxproj'; Platform = 'x64' },
@@ -36,7 +41,7 @@ jobs:
             @{ Path = 'src/Files.App.SaveDialog/Files.App.SaveDialog.Win32.vcxproj'; Platform = 'Win32' }
           )
           foreach ($project in $projects) {
-            msbuild $project.Path -t:Build -p:Configuration=Debug -p:Platform=$project.Platform -v:quiet -clp:ErrorsOnly
+            msbuild $project.Path -t:Build -p:Configuration=Debug -p:Platform=$project.Platform -p:WindowsTargetPlatformVersion=$sdkVersion -v:quiet -clp:ErrorsOnly
             if ($LASTEXITCODE) { throw "原生组件构建失败: $($project.Path) [$($project.Platform)]" }
           }
           $required = @(
