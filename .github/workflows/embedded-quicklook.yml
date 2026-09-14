@@ -72,7 +72,8 @@ jobs:
         shell: pwsh
         run: |
           $assembly = Get-ChildItem -LiteralPath 'src/Files.App/bin' -Recurse -Filter 'Files.dll' -File |
-            Where-Object { $_.FullName -match '[\\/]publish[\\/]' -and $_.FullName -match '[\\/]win-x64[\\/]' } |
+            Where-Object { $_.FullName -notmatch '[\\/]obj[\\/]' } |
+            Sort-Object LastWriteTime -Descending |
             Select-Object -First 1
           if ($null -eq $assembly) { throw '找不到 x64 DEV 主程序集 Files.dll' }
           New-Item -ItemType Directory -Force -Path 'artifacts/main-assembly' | Out-Null
