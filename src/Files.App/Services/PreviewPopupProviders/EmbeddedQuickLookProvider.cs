@@ -55,7 +55,7 @@ internal sealed class EmbeddedQuickLookProvider : IPreviewPopupProvider
 	{
 		CloseSession();
 
-		if (!Path.IsPathFullyQualified(path) || !File.Exists(path))
+		if (!Path.IsPathFullyQualified(path) || (!File.Exists(path) && !Directory.Exists(path)))
 			return;
 
 		var next = new EmbeddedQuickLookSession();
