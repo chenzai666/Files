@@ -36,18 +36,6 @@ namespace Files.App.Actions
 
 		public async Task ExecuteAsync(object? parameter = null)
 		{
-			if (EmbeddedQuickLookSession.IsAvailable)
-			{
-				var pane = Ioc.Default.GetRequiredService<InfoPaneViewModel>();
-				if (pane.IsEnabled && pane.SelectedTab == InfoPaneTabs.Preview)
-					pane.IsEnabled = false;
-				else
-				{
-					pane.SelectedTab = InfoPaneTabs.Preview;
-					pane.IsEnabled = true;
-				}
-				return;
-			}
 			var provider = await previewPopupService.GetProviderAsync();
 			if (provider is null)
 				return;
@@ -59,8 +47,6 @@ namespace Files.App.Actions
 
 		private async Task SwitchPopupPreviewAsync()
 		{
-			if (EmbeddedQuickLookSession.IsAvailable)
-				return;
 			if (IsExecutable)
 			{
 				var provider = await previewPopupService.GetProviderAsync();

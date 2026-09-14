@@ -15,7 +15,7 @@ internal sealed class EmbeddedQuickLookSession : IDisposable
 	internal static bool IsAvailable => Environment.Is64BitProcess && File.Exists(HostPath);
 	internal event EventHandler? Exited;
 
-	internal async Task StartAsync(nint parent, string path, bool dark)
+	internal async Task StartAsync(nint parent, string path, bool dark, bool popup = false)
 	{
 		var startInfo = new ProcessStartInfo(HostPath)
 		{
@@ -28,6 +28,8 @@ internal sealed class EmbeddedQuickLookSession : IDisposable
 		startInfo.ArgumentList.Add(parent.ToString(System.Globalization.CultureInfo.InvariantCulture));
 		startInfo.ArgumentList.Add(Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
 		startInfo.ArgumentList.Add(dark ? "dark" : "light");
+		if (popup)
+			startInfo.ArgumentList.Add("--popup");
 		var child = Process.Start(startInfo) ?? throw new IOException("The embedded preview host did not start.");
 		process = child;
 		using var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);

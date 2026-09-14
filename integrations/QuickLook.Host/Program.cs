@@ -30,7 +30,9 @@ internal static class Program
     {
         try
         {
-            if ((args.Length != 3 && (args.Length != 5 || args[3] != "--diagnostic-snapshot")) || !long.TryParse(args[0], out var handle) ||
+            var popup = args.Length == 4 && args[3] == "--popup";
+            var diagnostic = args.Length == 5 && args[3] == "--diagnostic-snapshot";
+            if ((!popup && !diagnostic && args.Length != 3) || !long.TryParse(args[0], out var handle) ||
                 !int.TryParse(args[1], out var processId) || handle == 0 || processId <= 0)
                 return 2;
 
@@ -74,10 +76,12 @@ internal static class Program
 
             var window = new Window
             {
-                WindowStyle = WindowStyle.None,
-                ResizeMode = ResizeMode.NoResize,
-                ShowInTaskbar = false,
-                ShowActivated = false,
+                WindowStyle = popup ? WindowStyle.SingleBorderWindow : WindowStyle.None,
+                ResizeMode = popup ? ResizeMode.CanResize : ResizeMode.NoResize,
+                ShowInTaskbar = popup,
+                ShowActivated = popup,
+                WindowStartupLocation = popup ? WindowStartupLocation.CenterOwner : WindowStartupLocation.Manual,
+                Title = popup ? $"QuickLook - {Path.GetFileName(path)}" : "Files QuickLook",
                 Width = 800,
                 Height = 600,
                 Background = args[2] == "dark" ? new SolidColorBrush(Color.FromRgb(32, 32, 32)) : Brushes.White
@@ -96,7 +100,7 @@ internal static class Program
             };
             window.Content = content;
             window.Closed += (_, _) => app.Shutdown();
-            window.SourceInitialized += (_, _) => Embed(window, parent);
+            window.SourceInitialized += (_, _) => ConfigureWindow(window, parent, popup);
             window.Loaded += (_, _) =>
             {
                 try
@@ -187,6 +191,17 @@ internal static class Program
         }
         app.Resources["SegoeMDL2"] = new FontFamily("Segoe MDL2 Assets");
         app.Resources["SegoeFluent"] = new FontFamily("Segoe Fluent Icons");
+    }
+
+    private static void ConfigureWindow(Window window, HWND parent, bool popup)
+    {
+        if (popup)
+        {
+            new WindowInteropHelper(window).Owner = parent;
+            return;
+        }
+
+        Embed(window, parent);
     }
 
     private static unsafe void Embed(Window window, HWND parent)

@@ -248,7 +248,7 @@ namespace Files.App.ViewModels.UserControls
 			PreviewPaneState = SelectedDriveItem is not null ? PreviewPaneStates.DriveStorageDetailsAvailable : PreviewPaneStates.PreviewAndDetailsAvailable;
 		}
 
-		private async Task<UserControl?> GetBuiltInPreviewControlAsync(ListedItem item, bool downloadItem, bool useQuickLook = true)
+		private async Task<UserControl?> GetBuiltInPreviewControlAsync(ListedItem item, bool downloadItem)
 		{
 			ShowCloudItemButton = false;
 
@@ -308,36 +308,6 @@ namespace Files.App.ViewModels.UserControls
 			}
 
 			var ext = item.FileExtension.ToLowerInvariant();
-
-			if (useQuickLook && EmbeddedQuickLookSession.IsAvailable &&
-				!item.IsFtpItem && contentPageContext.PageType != ContentPageTypes.ZipFolder &&
-				item.ItemPath is string itemPath && System.IO.Path.IsPathFullyQualified(itemPath) &&
-				!FileExtensionHelpers.IsAudioFile(ext) && !FileExtensionHelpers.IsVideoFile(ext) &&
-				!FileExtensionHelpers.IsExecutableFile(ext))
-			{
-				var model = new ShellPreviewViewModel(item, useQuickLook: true);
-				await model.LoadAsync();
-				var embedded = new ShellPreview(model);
-				model.PreviewFailed += async (_, _) =>
-				{
-					if (!ReferenceEquals(PreviewPaneContent, embedded))
-						return;
-					embedded.UnloadPreview();
-					try
-					{
-						var fallback = await GetBuiltInPreviewControlAsync(item, downloadItem, useQuickLook: false);
-						if (ReferenceEquals(PreviewPaneContent, embedded))
-							PreviewPaneContent = fallback;
-					}
-					catch (Exception ex)
-					{
-						App.Logger.LogWarning("Preview fallback failed: {ErrorType}", ex.GetType().Name);
-						if (ReferenceEquals(PreviewPaneContent, embedded))
-							PreviewPaneContent = null;
-					}
-				};
-				return embedded;
-			}
 
 			if (!item.IsFtpItem &&
 				contentPageContext.PageType != ContentPageTypes.ZipFolder &&
