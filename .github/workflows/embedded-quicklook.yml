@@ -26,6 +26,8 @@ jobs:
       - name: 构建 Files 原生集成组件
         shell: pwsh
         run: |
+          nuget restore src/Files.App.Launcher/Files.App.Launcher.vcxproj -SolutionDirectory ${{ github.workspace }} -Verbosity quiet
+          if ($LASTEXITCODE) { throw 'Files.App.Launcher NuGet 还原失败' }
           $projects = @(
             @{ Path = 'src/Files.App.Launcher/Files.App.Launcher.vcxproj'; Platform = 'x64' },
             @{ Path = 'src/Files.App.OpenDialog/Files.App.OpenDialog.vcxproj'; Platform = 'x64' },
