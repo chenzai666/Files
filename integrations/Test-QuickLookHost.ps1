@@ -42,7 +42,7 @@ try {
         Start-Sleep -Milliseconds 20
     }
     if (!$ready.IsCompleted -or $ready.Result -ne 'READY') { throw 'Host did not report READY.' }
-    $deadline = [DateTime]::UtcNow.AddSeconds(3)
+    $deadline = [DateTime]::UtcNow.AddSeconds(5)
     while ([DateTime]::UtcNow -lt $deadline) {
         [Windows.Forms.Application]::DoEvents()
         Start-Sleep -Milliseconds 20

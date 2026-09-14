@@ -42,7 +42,7 @@ Copy-Item (Join-Path $commonSource 'Build/Release/QuickLook.Common.dll') $runtim
 
 dotnet build (Join-Path $PSScriptRoot 'QuickLook.Host/Files.QuickLook.Host.csproj') -c Release -v:q --nologo
 if ($LASTEXITCODE) { throw '预览宿主构建失败。' }
-Copy-Item (Join-Path $PSScriptRoot 'QuickLook.Host/bin/Release/net48/*') $runtime -Force
+Copy-Item (Join-Path $PSScriptRoot 'QuickLook.Host/bin/Release/net48/*') $runtime -Recurse -Force
 
 # 只移除本脚本生成目录中的独立应用入口和便携标记。
 foreach ($name in @('QuickLook.exe', 'QuickLook.exe.config', 'portable.lock')) {

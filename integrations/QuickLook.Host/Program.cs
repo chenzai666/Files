@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 using QuickLook.Common.Plugin;
+using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.Wpf;
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -29,7 +31,7 @@ internal static class Program
         try
         {
             if ((args.Length != 3 && (args.Length != 5 || args[3] != "--diagnostic-snapshot")) || !long.TryParse(args[0], out var handle) ||
-                !int.TryParse(args[1], out var processId))
+                !int.TryParse(args[1], out var processId) || handle == 0 || processId <= 0)
                 return 2;
 
             var parent = new HWND((IntPtr)handle);
@@ -103,10 +105,17 @@ internal static class Program
                     viewer.View(path, context);
                     if (args.Length == 5)
                     {
-                        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-                        timer.Tick += (_, _) =>
+                        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+                        timer.Tick += async (_, _) =>
                         {
                             timer.Stop();
+                            if (context.ViewerContent is ContentControl panel && panel.Content is WebView2 webView && webView.CoreWebView2 is CoreWebView2 core)
+                            {
+                                File.WriteAllText(args[4] + ".txt", core.Source + Environment.NewLine + await core.ExecuteScriptAsync("document.body.innerText"));
+                                using (var output = File.Create(args[4]))
+                                    await core.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, output);
+                                return;
+                            }
                             var bitmap = new RenderTargetBitmap((int)window.ActualWidth, (int)window.ActualHeight, 96, 96, PixelFormats.Pbgra32);
                             bitmap.Render(window);
                             var encoder = new PngBitmapEncoder();
@@ -132,8 +141,7 @@ internal static class Program
                 catch (ArgumentException) { }
                 finally { app.Dispatcher.BeginInvoke(new Action(() => app.Shutdown())); }
             });
-            window.Show();
-            return app.Run();
+            return app.Run(window);
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }
     }
