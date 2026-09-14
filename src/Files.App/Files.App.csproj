@@ -174,9 +174,14 @@
         <MSBuild Projects="..\Files.App.Server\Files.App.Server.csproj"
                  Targets="Build"
                  Properties="Configuration=$(Configuration);Platform=$(Platform)" />
+    </Target>
+
+    <Target Name="IncludeFilesAppServer" BeforeTargets="AssignTargetPaths" DependsOnTargets="BuildFilesAppServer">
         <ItemGroup>
+            <Content Remove="..\Files.App.Server\bin\$(Platform)\$(Configuration)\$(TargetFramework)\win-$(Platform)\**\*" />
             <Content Include="..\Files.App.Server\bin\$(Platform)\$(Configuration)\$(TargetFramework)\win-$(Platform)\**\*">
                 <Link>Files.App.Server\%(RecursiveDir)%(Filename)%(Extension)</Link>
+                <TargetPath>Files.App.Server\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
                 <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
                 <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
             </Content>

@@ -29,6 +29,11 @@ jobs:
           msbuild Files.slnx -t:Restore -p:Configuration=Debug -p:Platform=x64 -v:quiet -clp:ErrorsOnly
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           msbuild src/Files.App/Files.App.csproj -p:Configuration=Debug -p:Platform=x64 -p:PublishAot=false -p:PublishTrimmed=false -p:AppxBundle=Never -p:GenerateAppxPackageOnBuild=true -p:UapAppxPackageBuildMode=SideloadOnly -p:AppxPackageSigningEnabled=false -p:AppxPackageDir=${{ github.workspace }}\artifacts\packages\ -v:quiet -clp:ErrorsOnly
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Files-QuickLook-install-only
+          path: artifacts/packages/**/*.msix
+          if-no-files-found: error
       - name: 保存对应源码和许可证
         shell: pwsh
         run: |
