@@ -8,10 +8,12 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
@@ -31,8 +33,8 @@ internal static class Program
     {
         try
         {
-            var popup = args.Length == 4 && args[3] == "--popup";
-            var diagnostic = args.Length == 5 && args[3] == "--diagnostic-snapshot";
+            var diagnostic = args.Length == 5 && (args[3] == "--diagnostic-snapshot" || args[3] == "--diagnostic-popup");
+            var popup = (args.Length == 4 && args[3] == "--popup") || (diagnostic && args[3] == "--diagnostic-popup");
             if ((!popup && !diagnostic && args.Length != 3) || !long.TryParse(args[0], out var handle) ||
                 !int.TryParse(args[1], out var processId) || handle == 0 || processId <= 0)
                 return 2;
@@ -47,6 +49,7 @@ internal static class Program
             }
 
             // Paths travel over the inherited pipe, never through a shell or public IPC endpoint.
+            Console.SetIn(new StreamReader(Console.OpenStandardInput(), new UTF8Encoding(false, true)));
             var path = Console.ReadLine();
             if (string.IsNullOrEmpty(path) || !Path.IsPathRooted(path) || (!File.Exists(path) && !Directory.Exists(path)))
                 return 3;
@@ -55,6 +58,9 @@ internal static class Program
             app.DispatcherUnhandledException += (_, e) =>
             {
                 e.Handled = true;
+                Console.Error.WriteLine(e.Exception.GetType().Name);
+                try { if (app.MainWindow is PreviewWindow failed && failed.ShowSummary()) return; }
+                catch { }
                 app.Shutdown(1);
             };
             app.Exit += (_, _) => { try { viewer?.Cleanup(); } catch { } };
@@ -70,13 +76,15 @@ internal static class Program
                 return file == null ? null : Assembly.LoadFrom(file);
             };
 
-            AddResources();
+            AppDomain.CurrentDomain.SetData("Files.QuickLook.DarkTheme", args[2] == "dark");
+            AddResources(args[2] == "dark");
             viewer = FindViewer(runtime, path);
             if (viewer == null)
                 return 4;
 
             var isFolder = Directory.Exists(path);
-            var window = new Window
+            var context = new ContextObject { Theme = args[2] == "dark" ? Themes.Dark : Themes.Light };
+            Window window = popup ? new PreviewWindow(context, viewer, path, replacement => viewer = replacement) : new Window
             {
                 WindowStyle = popup ? WindowStyle.SingleBorderWindow : WindowStyle.None,
                 ResizeMode = popup ? ResizeMode.CanResize : ResizeMode.NoResize,
@@ -89,33 +97,37 @@ internal static class Program
                 Background = args[2] == "dark" ? new SolidColorBrush(Color.FromRgb(32, 32, 32)) : Brushes.White
             };
             app.MainWindow = window;
-            var context = new ContextObject { Source = window, Theme = args[2] == "dark" ? Themes.Dark : Themes.Light };
+            context.Source = window;
             var content = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
             context.PropertyChanged += (_, e) =>
             {
-                if (e.PropertyName == nameof(ContextObject.ViewerContent))
+                if (!popup && e.PropertyName == nameof(ContextObject.ViewerContent))
                     content.Dispatcher.Invoke(() =>
                     {
                         content.Content = context.ViewerContent;
                         content.UpdateLayout();
                     });
             };
-            window.Content = content;
+            if (!popup) window.Content = content;
             window.Closed += (_, _) => app.Shutdown();
             window.SourceInitialized += (_, _) => ConfigureWindow(window, parent, popup);
             window.Loaded += (_, _) =>
             {
                 try
                 {
-                    viewer.Prepare(path, context);
-                    viewer.View(path, context);
+                    if (window is PreviewWindow preview) preview.LoadPreview();
+                    else
+                    {
+                        viewer.Prepare(path, context);
+                        viewer.View(path, context);
+                    }
                     if (args.Length == 5)
                     {
                         var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
                         timer.Tick += async (_, _) =>
                         {
                             timer.Stop();
-                            if (context.ViewerContent is ContentControl panel && panel.Content is WebView2 webView && webView.CoreWebView2 is CoreWebView2 core)
+                            if (!popup && context.ViewerContent is ContentControl panel && panel.Content is WebView2 webView && webView.CoreWebView2 is CoreWebView2 core)
                             {
                                 File.WriteAllText(args[4] + ".txt", core.Source + Environment.NewLine + await core.ExecuteScriptAsync("document.body.innerText"));
                                 using (var output = File.Create(args[4]))
@@ -139,7 +151,15 @@ internal static class Program
             // A closed stdin or dead owner ends the host, including when Files crashes.
             _ = Task.Run(() =>
             {
-                try { Console.ReadLine(); } finally { app.Dispatcher.BeginInvoke(new Action(() => app.Shutdown())); }
+                var command = Console.ReadLine();
+                if (diagnostic && popup && (command == "TEST_SPACE" || command == "TEST_ESCAPE"))
+                {
+                    app.Dispatcher.BeginInvoke(new Action(() => window.RaiseEvent(new KeyEventArgs(
+                        Keyboard.PrimaryDevice, PresentationSource.FromVisual(window), 0,
+                        command == "TEST_SPACE" ? Key.Space : Key.Escape)
+                    { RoutedEvent = Keyboard.KeyDownEvent })));
+                }
+                else app.Dispatcher.BeginInvoke(new Action(() => app.Shutdown()));
             });
             _ = Task.Run(() =>
             {
@@ -218,8 +238,10 @@ internal static class Program
         return Path.GetFileName(trimmed) is { Length: > 0 } name ? name : trimmed;
     }
 
-    private static void AddResources()
+    private static void AddResources(bool dark)
     {
+        app.Resources["SegoeMDL2"] = new FontFamily("Segoe MDL2 Assets");
+        app.Resources["SegoeFluent"] = new FontFamily("Segoe Fluent Icons");
         // Plugin controls expect the same shared WPF styles as the upstream host.
         foreach (var uri in new[]
         {
@@ -231,8 +253,11 @@ internal static class Program
             try { app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri(uri) }); }
             catch { }
         }
-        app.Resources["SegoeMDL2"] = new FontFamily("Segoe MDL2 Assets");
-        app.Resources["SegoeFluent"] = new FontFamily("Segoe Fluent Icons");
+        app.Resources.MergedDictionaries.Add(new ResourceDictionary
+        { Source = new Uri("pack://application:,,,/QuickLook.Common;component/Styles/MainWindowStyles.xaml") });
+        if (dark)
+            app.Resources.MergedDictionaries.Add(new ResourceDictionary
+            { Source = new Uri("pack://application:,,,/QuickLook.Common;component/Styles/MainWindowStyles.Dark.xaml") });
     }
 
     private static void ConfigureWindow(Window window, HWND parent, bool popup)

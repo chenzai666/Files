@@ -1,5 +1,8 @@
-param([string]$SamplePath)
+param([string]$SamplePath, [string]$RuntimePath, [switch]$Popup, [switch]$NoSnapshot,
+    [ValidateSet('light', 'dark')][string]$Theme = 'light',
+    [ValidateSet('stdin', 'Space', 'Escape')][string]$CloseWith = 'stdin')
 $ErrorActionPreference = 'Stop'
+if ($NoSnapshot -and (!$Popup -or $CloseWith -ne 'stdin')) { throw '-NoSnapshot requires -Popup and stdin dismissal.' }
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 $repoRoot = Split-Path $PSScriptRoot -Parent
 $testDir = Join-Path $repoRoot 'artifacts/host-test'
@@ -22,12 +25,18 @@ $form.Height = 650
 $form.StartPosition = 'CenterScreen'
 $form.Show()
 $start = New-Object Diagnostics.ProcessStartInfo
-$start.FileName = Join-Path $repoRoot 'artifacts/quicklook/Files.QuickLook.Host.exe'
+if (!$RuntimePath) { $RuntimePath = Join-Path $repoRoot 'artifacts/quicklook' }
+$start.FileName = Join-Path $RuntimePath 'Files.QuickLook.Host.exe'
 $snapshot = Join-Path $testDir ([IO.Path]::GetFileNameWithoutExtension($SamplePath) + [IO.Path]::GetExtension($SamplePath) + '.preview.png')
-$start.Arguments = '{0} {1} light --diagnostic-snapshot "{2}"' -f $form.Handle.ToInt64(), $PID, $snapshot
+if (Test-Path -LiteralPath $snapshot) { Remove-Item -LiteralPath $snapshot }
+$start.Arguments = '{0} {1} {2} --diagnostic-snapshot "{3}"' -f $form.Handle.ToInt64(), $PID, $Theme, $snapshot
+if ($Popup) { $start.Arguments = '{0} {1} {2} --diagnostic-popup "{3}"' -f $form.Handle.ToInt64(), $PID, $Theme, $snapshot }
+if ($NoSnapshot) { $start.Arguments = '{0} {1} {2} --popup' -f $form.Handle.ToInt64(), $PID, $Theme }
+$start.WorkingDirectory = $RuntimePath
 $start.UseShellExecute = $false
 $start.CreateNoWindow = $true
 $start.RedirectStandardInput = $true
+$start.StandardInputEncoding = [Text.UTF8Encoding]::new($false)
 $start.RedirectStandardOutput = $true
 $start.RedirectStandardError = $true
 $child = [Diagnostics.Process]::Start($start)
@@ -41,7 +50,10 @@ try {
         [Windows.Forms.Application]::DoEvents()
         Start-Sleep -Milliseconds 20
     }
-    if (!$ready.IsCompleted -or $ready.Result -ne 'READY') { throw 'Host did not report READY.' }
+    if (!$ready.IsCompleted -or $ready.Result -ne 'READY') {
+        $status = if ($child.HasExited) { $child.ExitCode } else { 'running' }
+        throw "Host did not report READY. ExitCode=$status"
+    }
     $deadline = [DateTime]::UtcNow.AddSeconds(5)
     while ([DateTime]::UtcNow -lt $deadline) {
         [Windows.Forms.Application]::DoEvents()
@@ -50,9 +62,15 @@ try {
     if ($child.HasExited) { throw 'Host exited after READY.' }
     $child.Refresh()
     Write-Output ('WorkingSetMB={0:N1}; PrivateMB={1:N1}' -f ($child.WorkingSet64 / 1MB), ($child.PrivateMemorySize64 / 1MB))
-    if (!(Test-Path -LiteralPath $snapshot)) { throw 'Host did not render its diagnostic snapshot.' }
-    $child.StandardInput.Close()
-    if (!$child.WaitForExit(3000)) { throw 'Host did not exit after stdin closed.' }
+    if (!$NoSnapshot -and !(Test-Path -LiteralPath $snapshot)) { throw 'Host did not render its diagnostic snapshot.' }
+    if ($CloseWith -eq 'stdin') { $child.StandardInput.Close() }
+    else {
+        if (!$Popup) { throw 'Keyboard dismissal requires -Popup.' }
+        $child.StandardInput.WriteLine('TEST_' + $CloseWith.ToUpperInvariant())
+        $child.StandardInput.Flush()
+    }
+    if (!$child.WaitForExit(3000)) { throw "Host did not exit after $CloseWith." }
+    if ($child.ExitCode -ne 0) { throw "Host failed with exit code $($child.ExitCode)." }
     Write-Output ('ExitCode={0}' -f $child.ExitCode)
 }
 finally {

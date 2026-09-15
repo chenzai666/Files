@@ -22,6 +22,7 @@ internal sealed class EmbeddedQuickLookSession : IDisposable
 			UseShellExecute = false,
 			CreateNoWindow = true,
 			RedirectStandardInput = true,
+			StandardInputEncoding = new System.Text.UTF8Encoding(false),
 			RedirectStandardOutput = true,
 			WorkingDirectory = Path.GetDirectoryName(HostPath)!,
 		};

@@ -23,6 +23,11 @@ jobs:
       - name: 构建隔离预览组件
         shell: pwsh
         run: ./integrations/Build-QuickLook.ps1
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Files-QuickLook-preview-runtime
+          path: artifacts/quicklook
+          if-no-files-found: error
       - name: 构建 Files 原生集成组件
         shell: pwsh
         run: |

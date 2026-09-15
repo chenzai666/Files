@@ -32,6 +32,16 @@ $replacement = @'
 '@
 $settings = $settings.Substring(0, $start) + $replacement + $settings.Substring($end)
 [IO.File]::WriteAllText($settingsPath, $settings)
+# 插件跟随 Files 窗口主题；只影响当前预览进程，不修改系统主题。
+$themePath = Join-Path $commonSource 'QuickLook.Common/Helpers/OSThemeHelper.cs'
+$themeSource = [IO.File]::ReadAllText($themePath)
+$themePattern = '(public static bool AppsUseDarkTheme\(\)\s*\{)'
+if ($themeSource -notmatch $themePattern) { throw '上游主题检测实现发生变化，需要人工复核。' }
+$themeSource = [regex]::Replace($themeSource, $themePattern, ('$1' + "`r`n" + @'
+        if (System.AppDomain.CurrentDomain.GetData("Files.QuickLook.DarkTheme") is bool dark)
+            return dark;
+'@))
+[IO.File]::WriteAllText($themePath, $themeSource)
 $assemblyVersion = [Reflection.AssemblyName]::GetAssemblyName((Join-Path $runtime 'QuickLook.Common.dll')).Version
 [IO.File]::WriteAllText((Join-Path $commonSource 'GitVersion.cs'), ('[assembly: System.Reflection.AssemblyVersion("{0}")]' -f $assemblyVersion))
 Copy-Item (Join-Path $PSScriptRoot 'QuickLook.Host/Directory.Build.props') $commonSource -Force
