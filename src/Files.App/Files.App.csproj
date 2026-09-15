@@ -72,7 +72,7 @@
   
     <ItemGroup>
         <Manifest Include="app.manifest" />
-        <Content Include="..\..\artifacts\quicklook\**\*" Condition="Exists('..\..\artifacts\quicklook\Files.QuickLook.Host.exe')">
+        <Content Include="..\..\artifacts\quicklook-full\**\*" Condition="Exists('..\..\artifacts\quicklook-full\Files.QuickLook.Host.exe')">
             <Link>QuickLook\%(RecursiveDir)%(Filename)%(Extension)</Link>
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
             <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>

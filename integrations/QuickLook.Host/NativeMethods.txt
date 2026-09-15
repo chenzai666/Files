@@ -1,7 +1,0 @@
-GetWindowThreadProcessId
-GetClientRect
-SetParent
-SetWindowLong
-SetWindowPos
-WINDOW_STYLE
-GetParent

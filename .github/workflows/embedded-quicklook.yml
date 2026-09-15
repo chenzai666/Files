@@ -1,7 +1,7 @@
 name: 构建内嵌 QuickLook 测试版
 on:
   push:
-    branches: [feature/embedded-quicklook]
+    branches: [feature/quicklook-full-port]
   workflow_dispatch:
 permissions:
   contents: read
@@ -22,11 +22,11 @@ jobs:
       - uses: microsoft/setup-msbuild@v3
       - name: 构建隔离预览组件
         shell: pwsh
-        run: ./integrations/Build-QuickLook.ps1
+        run: ./integrations/Build-QuickLookFullHost.ps1
       - uses: actions/upload-artifact@v7
         with:
           name: Files-QuickLook-preview-runtime
-          path: artifacts/quicklook
+          path: artifacts/quicklook-full
           if-no-files-found: error
       - name: 构建 Files 原生集成组件
         shell: pwsh

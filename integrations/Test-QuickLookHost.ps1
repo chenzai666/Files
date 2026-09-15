@@ -1,4 +1,4 @@
-param([string]$SamplePath, [string]$RuntimePath, [switch]$Popup, [switch]$NoSnapshot,
+param([string]$SamplePath, [string]$RuntimePath, [switch]$Popup = $true, [switch]$NoSnapshot,
     [ValidateSet('light', 'dark')][string]$Theme = 'light',
     [ValidateSet('stdin', 'Space', 'Escape')][string]$CloseWith = 'stdin')
 $ErrorActionPreference = 'Stop'
@@ -25,7 +25,7 @@ $form.Height = 650
 $form.StartPosition = 'CenterScreen'
 $form.Show()
 $start = New-Object Diagnostics.ProcessStartInfo
-if (!$RuntimePath) { $RuntimePath = Join-Path $repoRoot 'artifacts/quicklook' }
+if (!$RuntimePath) { $RuntimePath = Join-Path $repoRoot 'artifacts/quicklook-full' }
 $start.FileName = Join-Path $RuntimePath 'Files.QuickLook.Host.exe'
 $snapshot = Join-Path $testDir ([IO.Path]::GetFileNameWithoutExtension($SamplePath) + [IO.Path]::GetExtension($SamplePath) + '.preview.png')
 if (Test-Path -LiteralPath $snapshot) { Remove-Item -LiteralPath $snapshot }

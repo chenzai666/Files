@@ -23,9 +23,11 @@ internal sealed class EmbeddedQuickLookProvider : IPreviewPopupProvider
 		await gate.WaitAsync();
 		try
 		{
-			if (session is not null && string.Equals(currentPath, path, StringComparison.OrdinalIgnoreCase))
+			if (!IsPreviewPath(path))
+				return;
+			if (session is not null && await session.SendAsync("TOGGLE", path))
 			{
-				CloseSession();
+				currentPath = path;
 				return;
 			}
 
@@ -42,8 +44,13 @@ internal sealed class EmbeddedQuickLookProvider : IPreviewPopupProvider
 		await gate.WaitAsync();
 		try
 		{
-			if (session is not null && !string.Equals(currentPath, path, StringComparison.OrdinalIgnoreCase))
-				await ShowAsync(path);
+			if (session is not null && IsPreviewPath(path) && !string.Equals(currentPath, path, StringComparison.OrdinalIgnoreCase))
+			{
+				if (await session.SendAsync("SWITCH", path))
+					currentPath = path;
+				else
+					CloseSession();
+			}
 		}
 		finally
 		{
@@ -80,6 +87,9 @@ internal sealed class EmbeddedQuickLookProvider : IPreviewPopupProvider
 			next.Dispose();
 		}
 	}
+
+	private static bool IsPreviewPath(string path)
+		=> Path.IsPathFullyQualified(path) && (File.Exists(path) || Directory.Exists(path));
 
 	private void CloseSession()
 	{

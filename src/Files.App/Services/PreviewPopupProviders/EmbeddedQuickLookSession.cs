@@ -15,6 +15,22 @@ internal sealed class EmbeddedQuickLookSession : IDisposable
 	internal static bool IsAvailable => Environment.Is64BitProcess && File.Exists(HostPath);
 	internal event EventHandler? Exited;
 
+	internal async Task<bool> SendAsync(string command, string path)
+	{
+		var child = process;
+		if (child is null || lifetime.IsCancellationRequested || child.HasExited)
+			return false;
+		if (command is not ("TOGGLE" or "SWITCH") || path.IndexOfAny(['\r', '\n', '\t']) >= 0)
+			throw new ArgumentException("Invalid preview message.");
+		try
+		{
+			await child.StandardInput.WriteLineAsync($"{command}\t{path}".AsMemory(), lifetime.Token);
+			await child.StandardInput.FlushAsync(lifetime.Token);
+			return true;
+		}
+		catch (IOException) { return false; }
+	}
+
 	internal async Task StartAsync(nint parent, string path, bool dark, bool popup = false)
 	{
 		var startInfo = new ProcessStartInfo(HostPath)
