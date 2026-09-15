@@ -115,7 +115,7 @@ internal static class FilesBridge
                             break;
                         default: throw new ArgumentException("Invalid preview command.");
                     }
-                });
+                }, DispatcherPriority.ApplicationIdle);
             }
         }
         catch (Exception ex) { Console.Error.WriteLine(ex.GetType().Name); }
@@ -174,7 +174,7 @@ internal static class FilesBridge
         window.Closed += (_, _) => Application.Current.Dispatcher.BeginInvoke(new Action(() =>
         {
             if (!stopping && !Application.Current.Windows.OfType<ViewerWindow>().Any(w => w.IsVisible)) Stop();
-        }));
+        }), DispatcherPriority.ApplicationIdle);
     }
 
     internal static void Dispatch(string command, string path, string[] options)
@@ -193,7 +193,7 @@ internal static class FilesBridge
                 case PipeMessages.Fullscreen: manager.ToggleFullscreen(); break;
                 case PipeMessages.Quit: Stop(); break;
             }
-        }));
+        }), DispatcherPriority.ApplicationIdle);
     }
 
     private static void Stop()

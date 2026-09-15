@@ -57,6 +57,7 @@ try {
     Send-Command 'TEST_CLOSE_ALL'
     if (!$child.WaitForExit(5000)) { throw '关闭全部窗口后宿主未退出。' }
     if ($child.ExitCode -ne 0) { throw "宿主异常退出：$($child.ExitCode)" }
+    if ($errors.Result) { throw '有效样例的窗口切换产生了错误，不能通过验收。' }
     Write-Output 'PASS: 原版固定按钮、多窗口保留、选择切换、空格关闭活动窗口、关闭全部后退出。'
 }
 finally {
