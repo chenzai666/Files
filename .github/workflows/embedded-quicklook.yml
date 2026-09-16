@@ -73,6 +73,16 @@ jobs:
           msbuild Files.slnx -t:Restore -p:Configuration=Debug -p:Platform=x64 -v:quiet -clp:ErrorsOnly
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           msbuild src/Files.App/Files.App.csproj -p:Configuration=Debug -p:Platform=x64 -p:PublishAot=false -p:PublishTrimmed=false -p:AppxBundle=Never -p:GenerateAppxPackageOnBuild=true -p:UapAppxPackageBuildMode=SideloadOnly -p:AppxPackageSigningEnabled=false -p:AppxPackageDir=${{ github.workspace }}\artifacts\packages\ -v:quiet -clp:ErrorsOnly
+      - name: 构建单文件 EXE 安装器
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts\installer | Out-Null
+          ./integrations/New-FilesQuickLookInstaller.ps1 -OutputPath artifacts\installer\Files-QuickLook-Setup.exe
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Files-QuickLook-setup-exe
+          path: artifacts/installer/Files-QuickLook-Setup.exe
+          if-no-files-found: error
       - name: 导出 DEV 主程序集
         shell: pwsh
         run: |
