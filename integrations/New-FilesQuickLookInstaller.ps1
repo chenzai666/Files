@@ -9,29 +9,38 @@ $ErrorActionPreference = 'Stop'
 
 function Resolve-SevenZip {
 	param([string]$RequestedPath)
+	$candidates = [System.Collections.Generic.List[string]]::new()
 	if ($RequestedPath) {
 		$resolved = (Resolve-Path -LiteralPath $RequestedPath -ErrorAction Stop).Path
 		if (-not (Test-Path -LiteralPath $resolved -PathType Leaf)) {
 			throw "7-Zip executable does not exist: $RequestedPath"
 		}
-		return $resolved
+		$candidates.Add($resolved)
 	}
 
-	$command = Get-Command 7z.exe -ErrorAction SilentlyContinue
-	if ($command) {
-		return $command.Source
+	if (-not $RequestedPath) {
+		$command = Get-Command 7z.exe -ErrorAction SilentlyContinue
+		if ($command) {
+			$candidates.Add($command.Source)
+		}
 	}
 
-	$candidates = @(
+	$knownPaths = @(
 		(Join-Path ${env:ProgramFiles} '7-Zip\7z.exe'),
-		(Join-Path ${env:ProgramFiles(x86)} '7-Zip\7z.exe')
+		(Join-Path ${env:ProgramFiles(x86)} '7-Zip\7z.exe'),
+		'C:\ProgramData\chocolatey\lib\7zip\tools\7z.exe',
+		'C:\ProgramData\chocolatey\lib\7zip.install\tools\7z.exe'
 	)
+	foreach ($knownPath in $knownPaths) {
+		$candidates.Add([string]$knownPath)
+	}
 	foreach ($candidate in $candidates) {
-		if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+		if ((Test-Path -LiteralPath $candidate -PathType Leaf) -and
+			(Test-Path -LiteralPath (Join-Path (Split-Path -Parent $candidate) '7z.sfx') -PathType Leaf)) {
 			return $candidate
 		}
 	}
-	throw '找不到 7z.exe。'
+	throw '找不到同时包含 7z.exe 和 7z.sfx 的 7-Zip 安装。'
 }
 
 function Append-BinaryFile {
