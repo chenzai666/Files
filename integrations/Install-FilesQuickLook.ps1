@@ -98,7 +98,14 @@ try {
 			# which is a normal filesystem location accepted by Add-AppxPackage -Register.
 			$registeredPackageDirectory = Join-Path $env:TEMP 'FilesDev-RegisteredPackage'
 			if (Test-Path -LiteralPath $registeredPackageDirectory) {
-				Remove-Item -LiteralPath $registeredPackageDirectory -Recurse -Force
+				try {
+					Remove-Item -LiteralPath $registeredPackageDirectory -Recurse -Force -ErrorAction Stop
+				} catch {
+					# Security software can briefly hold a DLL in the previous DEV
+					# registration. Do not fail the installation; use a fresh path.
+					$registeredPackageDirectory = Join-Path $env:TEMP ('FilesDev-RegisteredPackage-' + [Guid]::NewGuid().ToString('N'))
+					Write-InstallLog "旧 DEV 注册目录正在使用，改用新的临时注册目录：$registeredPackageDirectory"
+				}
 			}
 			New-Item -ItemType Directory -Path $registeredPackageDirectory -Force | Out-Null
 			Expand-Archive -LiteralPath $package[0].FullName -DestinationPath $registeredPackageDirectory -Force
@@ -143,7 +150,8 @@ try {
 		$recycleBinId = '645FF040-5081-101B-9F08-00AA002F954E'
 		$recycleCommandKey = "HKCU:\Software\Classes\CLSID\{$recycleBinId}\shell\open\command"
 		New-Item -Path $recycleCommandKey -Force | Out-Null
-		$recycleCommand = '"{0}" "::{1}"' -f $launcherPath, $recycleBinId
+		$recycleTarget = '::{'+$recycleBinId+'}'
+		$recycleCommand = '"{0}" "{1}"' -f $launcherPath, $recycleTarget
 		New-ItemProperty -LiteralPath $recycleCommandKey -Name '(default)' -PropertyType ExpandString -Value $recycleCommand -Force | Out-Null
 		New-ItemProperty -LiteralPath $recycleCommandKey -Name 'DelegateExecute' -PropertyType String -Value '' -Force | Out-Null
 		Write-InstallLog '检测到 Files 已是默认文件管理器，已同步当前用户的回收站命令。'
