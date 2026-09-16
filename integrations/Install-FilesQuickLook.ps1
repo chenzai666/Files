@@ -85,6 +85,26 @@ try {
 		Write-InstallLog 'Files 当前不是默认文件管理器，保留 Windows 原有 Shell 关联。'
 	}
 
+	# Explorer may cache shell verbs for the lifetime of its process. Broadcast
+	# the documented association-change notification so a previous broken
+	# Recycle Bin command is not used after this installation.
+	try {
+		if (-not ('FilesQuickLookShellRefresh' -as [type])) {
+			Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class FilesQuickLookShellRefresh {
+    [DllImport("shell32.dll")]
+    public static extern void SHChangeNotify(uint wEventId, uint uFlags, IntPtr dwItem1, IntPtr dwItem2);
+}
+'@
+		}
+		[FilesQuickLookShellRefresh]::SHChangeNotify(0x08000000, 0, [IntPtr]::Zero, [IntPtr]::Zero)
+		Write-InstallLog '已通知 Explorer 刷新 Shell 关联。'
+	} catch {
+		Write-InstallLog ('通知 Explorer 刷新 Shell 关联失败：' + $_.Exception.Message)
+	}
+
 	Write-InstallLog "安装完成，版本 $($installed.Version)"
 	Show-InstallResult "Files DEV $($installed.Version) 安装完成。`n`n如果已启用默认文件管理器，请重新打开回收站验证；安装日志：$logPath" $false
 	exit 0
