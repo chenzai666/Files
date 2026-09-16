@@ -28,6 +28,7 @@ constexpr auto ID_TIMEREXPIRED = 101;
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 bool OpenInExistingShellWindow(const TCHAR* folderPath);
+bool IsRecycleBinTarget(const std::wstring& folderPath);
 bool IsLaunchedByExplorer();
 void WaitForProtocolActivation(HANDLE hProcess);
 void RunFileExplorer(const TCHAR* openDirectory);
@@ -107,7 +108,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 	if (withArgs)
 	{
-		if (IsLaunchedByExplorer() && OpenInExistingShellWindow(openDirectory))
+		// Explorer always has a shell window for the desktop.  Passing the Recycle
+		// Bin to OpenInExistingShellWindow would therefore navigate that native
+		// Explorer window instead of activating Files (or surface the shell's
+		// "application not found" dialog when the old handler is still cached).
+		// Keep the Recycle Bin on the Files protocol path below, just like a
+		// normal folder opened through the Files launcher.
+		const bool isRecycleBinTarget = IsRecycleBinTarget(openDirectory);
+
+		if (IsLaunchedByExplorer() && !isRecycleBinTarget && OpenInExistingShellWindow(openDirectory))
 		{
 			if (_debugStream)
 				fclose(_debugStream);
@@ -202,7 +211,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 			std::wcout << L"Item: " << item << std::endl;
 			launchFiles(L"-select", item, true);
 		}
-		else if (OpenInExistingShellWindow(openDirectory))
+		else if (!isRecycleBinTarget && OpenInExistingShellWindow(openDirectory))
 		{
 			openInFolder->RevokeShellWindow();
 			if (IsWindow(hwnd))
@@ -439,6 +448,13 @@ bool IsLaunchedByExplorer()
 	} while (Process32Next(snapshot.get(), &processEntry));
 
 	return false;
+}
+
+bool IsRecycleBinTarget(const std::wstring& folderPath)
+{
+	return comparei(folderPath, L"::{645FF040-5081-101B-9F08-00AA002F954E}") ||
+		comparei(folderPath, L"shell:::{645FF040-5081-101B-9F08-00AA002F954E}") ||
+		comparei(folderPath, L"Shell:RecycleBinFolder");
 }
 
 bool OpenInExistingShellWindow(const TCHAR* folderPath)
