@@ -62,13 +62,79 @@ try {
 		$parameters.ForceUpdateFromAnyVersion = $true
 	}
 
-	Add-AppxPackage @parameters
+	$installMode = 'MSIX'
+	try {
+		Add-AppxPackage @parameters
+	} catch {
+		$deploymentError = $_.Exception.Message
+		if ($deploymentError -match '0x80073CFB|未打包版本|unpackaged version') {
+			$existingPackages = @(Get-AppxPackage -Name FilesDev -ErrorAction SilentlyContinue)
+			foreach ($existingPackage in $existingPackages) {
+				Write-InstallLog "检测到旧的 DEV 开发注册 $($existingPackage.PackageFullName)，保留应用数据后注销。"
+				Remove-AppxPackage -Package $existingPackage.PackageFullName -PreserveApplicationData -ErrorAction Stop
+			}
+
+			try {
+				Add-AppxPackage @parameters
+				$deploymentError = $null
+			} catch {
+				$deploymentError = $_.Exception.Message
+			}
+		}
+
+		if ($deploymentError -match '0x80073D2C|未签名的命名空间|publisher.*unsigned namespace') {
+			# A DEV machine can have this package registered from an unpacked
+			# workspace. Windows refuses the unsigned MSIX in that state, so use
+			# the supported development registration path after extracting it.
+			$existingPackages = @(Get-AppxPackage -Name FilesDev -ErrorAction SilentlyContinue)
+			foreach ($existingPackage in $existingPackages) {
+				Write-InstallLog "移除冲突的 DEV 包 $($existingPackage.PackageFullName)，保留应用数据。"
+				Remove-AppxPackage -Package $existingPackage.PackageFullName -PreserveApplicationData -ErrorAction Stop
+			}
+
+			# Registering an unpacked package from the installer log directory can
+			# fail with 0x80073CF0/0x80070003 on machines where that directory has
+			# inherited package-specific ACLs. Use the per-user temporary directory,
+			# which is a normal filesystem location accepted by Add-AppxPackage -Register.
+			$registeredPackageDirectory = Join-Path $env:TEMP 'FilesDev-RegisteredPackage'
+			if (Test-Path -LiteralPath $registeredPackageDirectory) {
+				Remove-Item -LiteralPath $registeredPackageDirectory -Recurse -Force
+			}
+			New-Item -ItemType Directory -Path $registeredPackageDirectory -Force | Out-Null
+			Expand-Archive -LiteralPath $package[0].FullName -DestinationPath $registeredPackageDirectory -Force
+			$registerParameters = @{
+				Path = Join-Path $registeredPackageDirectory 'AppxManifest.xml'
+				Register = $true
+				ForceApplicationShutdown = $true
+				ErrorAction = 'Stop'
+			}
+			Add-AppxPackage @registerParameters
+			$installMode = 'DEV-Register'
+		} elseif ($deploymentError) {
+			throw $deploymentError
+		}
+	}
 	$installed = Get-AppxPackage -Name FilesDev -ErrorAction SilentlyContinue |
 		Sort-Object Version -Descending |
 		Select-Object -First 1
 	if ($null -eq $installed) {
 		throw 'Add-AppxPackage 返回成功，但没有找到 FilesDev 注册信息。'
 	}
+
+	$launcherDirectory = Join-Path $env:LOCALAPPDATA 'Files'
+	New-Item -ItemType Directory -Path $launcherDirectory -Force | Out-Null
+	$launcherSource = Join-Path $installed.InstallLocation 'Assets\FilesOpenDialog\Files.App.Launcher.exe'
+	if (-not (Test-Path -LiteralPath $launcherSource)) {
+		throw "安装包缺少 Files 启动器：$launcherSource"
+	}
+	Copy-Item -LiteralPath $launcherSource -Destination (Join-Path $launcherDirectory 'Files.App.Launcher.exe') -Force
+	foreach ($registryAsset in @('SetFilesAsDefault.reg', 'UnsetFilesAsDefault.reg')) {
+		$registrySource = Join-Path $installed.InstallLocation "Assets\FilesOpenDialog\$registryAsset"
+		if (Test-Path -LiteralPath $registrySource) {
+			Copy-Item -LiteralPath $registrySource -Destination (Join-Path $launcherDirectory $registryAsset) -Force
+		}
+	}
+	Write-InstallLog "已同步 Files 启动器和 Shell 模板，安装模式：$installMode。"
 
 	$folderCommandKey = 'HKCU:\Software\Classes\Folder\shell\open\command'
 	$folderCommand = (Get-ItemProperty -LiteralPath $folderCommandKey -Name '(default)' -ErrorAction SilentlyContinue).'(default)'
