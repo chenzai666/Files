@@ -58,6 +58,9 @@ try {
 	} else {
 		Write-InstallLog '当前 PowerShell 不支持 AllowUnsigned，将使用系统默认的 MSIX 签名校验。'
 	}
+	if ($addAppxPackage.Parameters.ContainsKey('ForceUpdateFromAnyVersion')) {
+		$parameters.ForceUpdateFromAnyVersion = $true
+	}
 
 	Add-AppxPackage @parameters
 	$installed = Get-AppxPackage -Name FilesDev -ErrorAction SilentlyContinue |
@@ -65,6 +68,21 @@ try {
 		Select-Object -First 1
 	if ($null -eq $installed) {
 		throw 'Add-AppxPackage 返回成功，但没有找到 FilesDev 注册信息。'
+	}
+
+	$folderCommandKey = 'HKCU:\Software\Classes\Folder\shell\open\command'
+	$folderCommand = (Get-ItemProperty -LiteralPath $folderCommandKey -Name '(default)' -ErrorAction SilentlyContinue).'(default)'
+	if ($folderCommand -and $folderCommand -match 'Files\.App\.Launcher\.exe') {
+		$launcherPath = Join-Path $env:LOCALAPPDATA 'Files\Files.App.Launcher.exe'
+		$recycleBinId = '645FF040-5081-101B-9F08-00AA002F954E'
+		$recycleCommandKey = "HKCU:\Software\Classes\CLSID\{$recycleBinId}\shell\open\command"
+		New-Item -Path $recycleCommandKey -Force | Out-Null
+		$recycleCommand = '"{0}" "::{1}"' -f $launcherPath, $recycleBinId
+		New-ItemProperty -LiteralPath $recycleCommandKey -Name '(default)' -PropertyType ExpandString -Value $recycleCommand -Force | Out-Null
+		New-ItemProperty -LiteralPath $recycleCommandKey -Name 'DelegateExecute' -PropertyType String -Value '' -Force | Out-Null
+		Write-InstallLog '检测到 Files 已是默认文件管理器，已同步当前用户的回收站命令。'
+	} else {
+		Write-InstallLog 'Files 当前不是默认文件管理器，保留 Windows 原有 Shell 关联。'
 	}
 
 	Write-InstallLog "安装完成，版本 $($installed.Version)"
