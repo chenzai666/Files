@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   release:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
       SOURCE_RUN: ${{ inputs.run_id }}
@@ -49,11 +49,11 @@ jobs:
           SOURCE_SHA: ${{ steps.source.outputs.sha }}
         run: |
           $exe = 'artifacts/installer/Files-QuickLook-Setup.exe'
-          & 'C:\Program Files\7-Zip\7z.exe' t $exe
+          7z t $exe
           if ($LASTEXITCODE) { throw '安装器完整性检查失败' }
-          & 'C:\Program Files\7-Zip\7z.exe' x $exe '-oartifacts/verify' 'Install-FilesQuickLook.ps1' -y
+          7z x $exe '-oartifacts/verify' 'Install-FilesQuickLook.ps1' -y
           if ($LASTEXITCODE) { throw '提取安装脚本失败' }
-          if ((Get-FileHash artifacts/verify/Install-FilesQuickLook.ps1).Hash -ne (Get-FileHash integrations/Install-FilesQuickLook.ps1).Hash) { throw '内嵌脚本与来源提交不一致' }
+          if (([IO.File]::ReadAllText('artifacts/verify/Install-FilesQuickLook.ps1').Replace([string][char]13, '')) -cne ([IO.File]::ReadAllText('integrations/Install-FilesQuickLook.ps1').Replace([string][char]13, ''))) { throw '内嵌脚本与来源提交不一致' }
           $namedExe = "artifacts/installer/Files-QuickLook-$env:RELEASE_TAG-x64-Setup.exe"
           Move-Item -LiteralPath $exe -Destination $namedExe
           $exe = $namedExe
@@ -63,5 +63,14 @@ jobs:
           $notes += "`n`n构建来源：main，提交 $env:SOURCE_SHA。`n构建记录：https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:SOURCE_RUN`n`n本版本从已通过的 main 构建发布，与 .6 功能一致，不需要重复安装。`n"
           $notes | Set-Content artifacts/release-notes.md -Encoding utf8
           [string[]]$releaseFlags = if ($env:RELEASE_TAG -match '-rc\.') { @('--prerelease') } else { @('--latest') }
-          gh release create $env:RELEASE_TAG $exe "$exe.sha256" --repo $env:GITHUB_REPOSITORY --target $env:SOURCE_SHA @releaseFlags --title "Files QuickLook $env:RELEASE_TAG" --notes-file artifacts/release-notes.md
+          $existing = gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --json isDraft 2>$null | ConvertFrom-Json
+          if ($LASTEXITCODE -eq 0) {
+            if (-not $existing.isDraft) { throw '该版本已公开发布，禁止覆盖' }
+          } else {
+            gh release create $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --target $env:SOURCE_SHA --draft --title "Files QuickLook $env:RELEASE_TAG" --notes-file artifacts/release-notes.md
+            if ($LASTEXITCODE) { throw '创建草稿失败' }
+          }
+          gh release upload $env:RELEASE_TAG $exe "$exe.sha256" --repo $env:GITHUB_REPOSITORY --clobber
+          if ($LASTEXITCODE) { throw '附件上传失败' }
+          gh release edit $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --draft=false @releaseFlags --title "Files QuickLook $env:RELEASE_TAG" --notes-file artifacts/release-notes.md
           if ($LASTEXITCODE) { throw '发布失败' }
