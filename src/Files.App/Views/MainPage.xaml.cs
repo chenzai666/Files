@@ -6,6 +6,7 @@ using Files.App.Controls;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Input;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -39,6 +40,8 @@ namespace Files.App.Views
 
 		private DispatcherQueueTimer _updateDateDisplayTimer;
 		private WindowMessageMonitor? _titleBarMessageMonitor;
+		private XamlRoot? _titleBarXamlRoot;
+		private double _titleBarRasterizationScale;
 
 		private readonly Dictionary<TabBarItem, double> _sidebarScrollByTab = new();
 		private TabBarItem? _previousSidebarTab;
@@ -326,12 +329,19 @@ namespace Files.App.Views
 		{
 			ViewModel.OnPageLoaded();
 
-			MainWindow.Instance.AppWindow.Changed += (_, _) => MainWindow.Instance.RaiseSetTitleBarDragRegion(SetTitleBarDragRegion);
+			MainWindow.Instance.AppWindow.Changed -= TitleBar_AppWindowChanged;
+			MainWindow.Instance.AppWindow.Changed += TitleBar_AppWindowChanged;
+			if (_titleBarXamlRoot is not null)
+				_titleBarXamlRoot.Changed -= TitleBar_XamlRootChanged;
+			_titleBarXamlRoot = XamlRoot;
+			_titleBarRasterizationScale = XamlRoot.RasterizationScale;
+			_titleBarXamlRoot.Changed += TitleBar_XamlRootChanged;
 
 			// Defers loading until after the page has loaded to improve startup perf
 			FindName(nameof(InnerNavigationToolbar));
 			FindName(nameof(TabControl));
 			FindName(nameof(NavToolbar));
+			MainWindow.Instance.RaiseSetTitleBarDragRegion(SetTitleBarDragRegion);
 
 			// Notify user that drag and drop is disabled
 			// Prompt is disabled in the dev environment to prevent issues with the automation testing 
@@ -345,6 +355,30 @@ namespace Files.App.Views
 			{
 				DispatcherQueue.TryEnqueue(async () => await AppRunningAsAdminPromptAsync());
 			}
+		}
+
+		private void TitleBar_AppWindowChanged(AppWindow sender, AppWindowChangedEventArgs args)
+		{
+			// Moving within a monitor does not change window-relative hit regions.
+			if (args.DidSizeChange || args.DidPresenterChange || args.DidVisibilityChange)
+				MainWindow.Instance.RaiseSetTitleBarDragRegion(SetTitleBarDragRegion);
+		}
+
+		private void TitleBar_XamlRootChanged(XamlRoot sender, XamlRootChangedEventArgs args)
+		{
+			// DPI can update after the position event when moving between monitors.
+			if (_titleBarRasterizationScale == sender.RasterizationScale)
+				return;
+			_titleBarRasterizationScale = sender.RasterizationScale;
+			MainWindow.Instance.RaiseSetTitleBarDragRegion(SetTitleBarDragRegion);
+		}
+
+		private void Page_Unloaded(object sender, RoutedEventArgs e)
+		{
+			MainWindow.Instance.AppWindow.Changed -= TitleBar_AppWindowChanged;
+			if (_titleBarXamlRoot is not null)
+				_titleBarXamlRoot.Changed -= TitleBar_XamlRootChanged;
+			_titleBarXamlRoot = null;
 		}
 
 		private void PreviewPane_Loaded(object sender, RoutedEventArgs e)
