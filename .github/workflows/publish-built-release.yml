@@ -70,7 +70,9 @@ jobs:
             gh release create $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --target $env:SOURCE_SHA --draft --title "Files QuickLook $env:RELEASE_TAG" --notes-file artifacts/release-notes.md
             if ($LASTEXITCODE) { throw '创建草稿失败' }
           }
-          $release = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:RELEASE_TAG" | ConvertFrom-Json
+          $releaseId = gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --json databaseId --jq '.databaseId'
+          if ($LASTEXITCODE) { throw '读取草稿 ID 失败' }
+          $release = gh api "repos/$env:GITHUB_REPOSITORY/releases/$releaseId" | ConvertFrom-Json
           if ($LASTEXITCODE -or -not $release.draft) { throw '无法确认发布草稿' }
           foreach ($file in @($exe, "$exe.sha256")) {
             $name = Split-Path $file -Leaf
