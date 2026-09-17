@@ -62,6 +62,6 @@ jobs:
           $notes = Get-Content integrations/安装目录修复说明.md -Raw -Encoding UTF8
           $notes += "`n`n构建来源：main，提交 $env:SOURCE_SHA。`n构建记录：https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:SOURCE_RUN`n`n本版本从已通过的 main 构建发布，与 .6 功能一致，不需要重复安装。`n"
           $notes | Set-Content artifacts/release-notes.md -Encoding utf8
-          $releaseFlags = if ($env:RELEASE_TAG -match '-rc\.') { @('--prerelease') } else { @('--latest') }
+          [string[]]$releaseFlags = if ($env:RELEASE_TAG -match '-rc\.') { @('--prerelease') } else { @('--latest') }
           gh release create $env:RELEASE_TAG $exe "$exe.sha256" --repo $env:GITHUB_REPOSITORY --target $env:SOURCE_SHA @releaseFlags --title "Files QuickLook $env:RELEASE_TAG" --notes-file artifacts/release-notes.md
           if ($LASTEXITCODE) { throw '发布失败' }

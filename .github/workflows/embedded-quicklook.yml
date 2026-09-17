@@ -157,6 +157,6 @@ jobs:
           $exe = $namedExe
           $hash = (Get-FileHash $exe -Algorithm SHA256).Hash
           "$hash *$(Split-Path $exe -Leaf)" | Set-Content "$exe.sha256" -Encoding ascii
-          $releaseFlags = if ($env:RELEASE_TAG -match '-rc\.') { @('--prerelease') } else { @('--latest') }
+          [string[]]$releaseFlags = if ($env:RELEASE_TAG -match '-rc\.') { @('--prerelease') } else { @('--latest') }
           gh release create $env:RELEASE_TAG $exe "$exe.sha256" --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA @releaseFlags --title "Files QuickLook $env:RELEASE_TAG" --notes-file integrations/安装目录修复说明.md
           if ($LASTEXITCODE) { throw '发布失败' }
