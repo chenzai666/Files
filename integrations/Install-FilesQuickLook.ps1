@@ -1,5 +1,5 @@
-[CmdletBinding()]
-param()
+﻿[CmdletBinding()]
+param([switch]$NoPrompt)
 
 $ErrorActionPreference = 'Stop'
 
@@ -19,6 +19,10 @@ function Show-InstallResult {
 		[string]$Message,
 		[bool]$Error
 	)
+	if ($NoPrompt) {
+		Write-Host $Message
+		return
+	}
 
 	try {
 		Add-Type -AssemblyName PresentationFramework -ErrorAction Stop
@@ -44,14 +48,30 @@ try {
 	if ($dependencies.Count -eq 0) {
 		throw '未找到 x64 Windows App Runtime 依赖包。'
 	}
+	# 已满足版本的共享运行库不重新部署，避免影响记事本等正在运行的应用。
+	Add-Type -AssemblyName System.IO.Compression.FileSystem
+	$dependencies = @($dependencies | Where-Object {
+		$archive = [IO.Compression.ZipFile]::OpenRead($_.FullName)
+		try {
+			$reader = [IO.StreamReader]::new($archive.GetEntry('AppxManifest.xml').Open())
+			try { [xml]$manifest = $reader.ReadToEnd() } finally { $reader.Dispose() }
+			$identity = $manifest.Package.Identity
+			$present = @(Get-AppxPackage -Name $identity.Name | Where-Object {
+				$_.Publisher -eq $identity.Publisher -and
+				$_.Architecture.ToString() -ieq $identity.ProcessorArchitecture -and
+				[version]$_.Version -ge [version]$identity.Version
+			})
+			$present.Count -eq 0
+		} finally { $archive.Dispose() }
+	})
 
 	Write-InstallLog "开始安装 $($package[0].Name)"
 	$parameters = @{
 		Path = $package[0].FullName
-		DependencyPath = $dependencies.FullName
 		ForceApplicationShutdown = $true
 		ErrorAction = 'Stop'
 	}
+	if ($dependencies.Count) { $parameters.DependencyPath = $dependencies.FullName }
 	$addAppxPackage = Get-Command Add-AppxPackage -ErrorAction Stop
 	if ($addAppxPackage.Parameters.ContainsKey('AllowUnsigned')) {
 		$parameters.AllowUnsigned = $true
@@ -67,55 +87,55 @@ try {
 		Add-AppxPackage @parameters
 	} catch {
 		$deploymentError = $_.Exception.Message
-		if ($deploymentError -match '0x80073CFB|未打包版本|unpackaged version') {
-			$existingPackages = @(Get-AppxPackage -Name FilesDev -ErrorAction SilentlyContinue)
-			foreach ($existingPackage in $existingPackages) {
-				Write-InstallLog "检测到旧的 DEV 开发注册 $($existingPackage.PackageFullName)，保留应用数据后注销。"
-				Remove-AppxPackage -Package $existingPackage.PackageFullName -PreserveApplicationData -ErrorAction Stop
-			}
-
-			try {
-				Add-AppxPackage @parameters
-				$deploymentError = $null
-			} catch {
-				$deploymentError = $_.Exception.Message
-			}
-		}
-
-		if ($deploymentError -match '0x80073D2C|未签名的命名空间|publisher.*unsigned namespace') {
+		if ($deploymentError -match '0x80073CFB|0x80073D2C|未打包版本|unpackaged version|未签名的命名空间|publisher.*unsigned namespace') {
 			# A DEV machine can have this package registered from an unpacked
 			# workspace. Windows refuses the unsigned MSIX in that state, so use
 			# the supported development registration path after extracting it.
 			$existingPackages = @(Get-AppxPackage -Name FilesDev -ErrorAction SilentlyContinue)
-			foreach ($existingPackage in $existingPackages) {
-				Write-InstallLog "移除冲突的 DEV 包 $($existingPackage.PackageFullName)，保留应用数据。"
-				Remove-AppxPackage -Package $existingPackage.PackageFullName -PreserveApplicationData -ErrorAction Stop
-			}
 
-			# Registering an unpacked package from the installer log directory can
-			# fail with 0x80073CF0/0x80070003 on machines where that directory has
-			# inherited package-specific ACLs. Use the per-user temporary directory,
-			# which is a normal filesystem location accepted by Add-AppxPackage -Register.
-			$registeredPackageDirectory = Join-Path $env:TEMP 'FilesDev-RegisteredPackage'
-			if (Test-Path -LiteralPath $registeredPackageDirectory) {
-				try {
-					Remove-Item -LiteralPath $registeredPackageDirectory -Recurse -Force -ErrorAction Stop
-				} catch {
-					# Security software can briefly hold a DLL in the previous DEV
-					# registration. Do not fail the installation; use a fresh path.
-					$registeredPackageDirectory = Join-Path $env:TEMP ('FilesDev-RegisteredPackage-' + [Guid]::NewGuid().ToString('N'))
-					Write-InstallLog "旧 DEV 注册目录正在使用，改用新的临时注册目录：$registeredPackageDirectory"
+			# 开发注册直接依赖此目录中的文件，不能放入会被清理的 Temp。
+			# 每次使用独立的持久目录，避免覆盖旧包或删除仍被使用的文件。
+			$registeredPackageRoot = Join-Path $env:LOCALAPPDATA 'Programs\FilesDev'
+			$registeredPackageDirectory = Join-Path $registeredPackageRoot ([Guid]::NewGuid().ToString('N'))
+			New-Item -ItemType Directory -Path $registeredPackageDirectory -Force | Out-Null
+			# Windows PowerShell 5.1 的 Expand-Archive 不接受 .msix 扩展名。
+			Add-Type -AssemblyName System.IO.Compression.FileSystem
+			[IO.Compression.ZipFile]::ExtractToDirectory($package[0].FullName, $registeredPackageDirectory)
+			foreach ($requiredFile in @('AppxManifest.xml', 'Files.exe', 'Assets\FilesOpenDialog\Files.App.Launcher.exe')) {
+				if (-not (Test-Path -LiteralPath (Join-Path $registeredPackageDirectory $requiredFile) -PathType Leaf)) {
+					throw "解包不完整：$requiredFile；保留现有安装。"
 				}
 			}
-			New-Item -ItemType Directory -Path $registeredPackageDirectory -Force | Out-Null
-			Expand-Archive -LiteralPath $package[0].FullName -DestinationPath $registeredPackageDirectory -Force
+			foreach ($dependency in $dependencies) {
+				Add-AppxPackage -Path $dependency.FullName -ForceUpdateFromAnyVersion -ErrorAction Stop
+			}
 			$registerParameters = @{
 				Path = Join-Path $registeredPackageDirectory 'AppxManifest.xml'
 				Register = $true
 				ForceApplicationShutdown = $true
 				ErrorAction = 'Stop'
 			}
-			Add-AppxPackage @registerParameters
+			try {
+				foreach ($existingPackage in $existingPackages) {
+					Write-InstallLog "更新 DEV 注册 $($existingPackage.PackageFullName)，保留应用数据和旧程序目录。"
+					Remove-AppxPackage -Package $existingPackage.PackageFullName -PreserveApplicationData -ErrorAction Stop
+				}
+				Add-AppxPackage @registerParameters
+			} catch {
+				$registrationError = $_
+				foreach ($existingPackage in $existingPackages) {
+					$previousManifest = Join-Path $existingPackage.InstallLocation 'AppxManifest.xml'
+					if ($existingPackage.IsDevelopmentMode -and (Test-Path -LiteralPath $previousManifest)) {
+						try {
+							Add-AppxPackage -Register $previousManifest -ForceApplicationShutdown -ErrorAction Stop
+							Write-InstallLog '新包注册失败，已恢复旧 DEV 注册。'
+						} catch {
+							Write-InstallLog "恢复旧注册失败：$($_.Exception.Message)"
+						}
+					}
+				}
+				throw $registrationError
+			}
 			$installMode = 'DEV-Register'
 		} elseif ($deploymentError) {
 			throw $deploymentError
