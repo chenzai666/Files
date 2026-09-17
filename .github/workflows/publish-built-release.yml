@@ -70,7 +70,20 @@ jobs:
             gh release create $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --target $env:SOURCE_SHA --draft --title "Files QuickLook $env:RELEASE_TAG" --notes-file artifacts/release-notes.md
             if ($LASTEXITCODE) { throw '创建草稿失败' }
           }
-          gh release upload $env:RELEASE_TAG $exe "$exe.sha256" --repo $env:GITHUB_REPOSITORY --clobber
-          if ($LASTEXITCODE) { throw '附件上传失败' }
+          $release = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:RELEASE_TAG" | ConvertFrom-Json
+          if ($LASTEXITCODE -or -not $release.draft) { throw '无法确认发布草稿' }
+          foreach ($file in @($exe, "$exe.sha256")) {
+            $name = Split-Path $file -Leaf
+            foreach ($asset in @($release.assets | Where-Object name -eq $name)) {
+              gh api --method DELETE "repos/$env:GITHUB_REPOSITORY/releases/assets/$($asset.id)"
+              if ($LASTEXITCODE) { throw '清理草稿附件失败' }
+            }
+            $url = "https://uploads.github.com/repos/$env:GITHUB_REPOSITORY/releases/$($release.id)/assets?name=$([Uri]::EscapeDataString($name))"
+            curl --http1.1 --fail-with-body --connect-timeout 20 --max-time 300 --request POST --header "Authorization: Bearer $env:GH_TOKEN" --header 'Content-Type: application/octet-stream' --data-binary "@$file" --output artifacts/upload-response.json --write-out 'HTTP=%{http_code} uploaded=%{size_upload} speed=%{speed_upload}\n' $url
+            if ($LASTEXITCODE) { throw "上传失败: $name" }
+            $uploaded = Get-Content artifacts/upload-response.json -Raw | ConvertFrom-Json
+            $expectedDigest = 'sha256:' + (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($uploaded.size -ne (Get-Item $file).Length -or $uploaded.digest -ne $expectedDigest) { throw '远端附件校验失败' }
+          }
           gh release edit $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --draft=false @releaseFlags --title "Files QuickLook $env:RELEASE_TAG" --notes-file artifacts/release-notes.md
           if ($LASTEXITCODE) { throw '发布失败' }
