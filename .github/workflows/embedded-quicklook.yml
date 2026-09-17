@@ -144,7 +144,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
-          if ($env:RELEASE_TAG -notmatch '^v[0-9.]+-quicklook\.[0-9]+$') { throw '无效的版本标签' }
+          if ($env:RELEASE_TAG -notmatch '^v\d+\.\d+\.\d+-rc\.\d+$') { throw '无效的版本标签' }
           $exe = 'artifacts/installer/Files-QuickLook-Setup.exe'
           & 'C:\Program Files\7-Zip\7z.exe' t $exe
           if ($LASTEXITCODE) { throw '安装器完整性检查失败' }
@@ -152,7 +152,10 @@ jobs:
           if ($LASTEXITCODE) { throw '无法提取安装脚本' }
           $embedded = (Get-FileHash 'artifacts/verify/Install-FilesQuickLook.ps1').Hash
           if ($embedded -ne (Get-FileHash 'integrations/Install-FilesQuickLook.ps1').Hash) { throw '安装脚本与源码不一致' }
+          $namedExe = "artifacts/installer/Files-QuickLook-$env:RELEASE_TAG-x64-Setup.exe"
+          Move-Item -LiteralPath $exe -Destination $namedExe
+          $exe = $namedExe
           $hash = (Get-FileHash $exe -Algorithm SHA256).Hash
-          "$hash *Files-QuickLook-Setup.exe" | Set-Content "$exe.sha256" -Encoding ascii
-          gh release create $env:RELEASE_TAG $exe "$exe.sha256" --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --prerelease --title "Files DEV $env:RELEASE_TAG（持久安装目录修复）" --notes-file integrations/安装目录修复说明.md
+          "$hash *$(Split-Path $exe -Leaf)" | Set-Content "$exe.sha256" -Encoding ascii
+          gh release create $env:RELEASE_TAG $exe "$exe.sha256" --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --prerelease --title "Files QuickLook $env:RELEASE_TAG" --notes-file integrations/安装目录修复说明.md
           if ($LASTEXITCODE) { throw '发布失败' }

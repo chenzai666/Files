@@ -7,7 +7,7 @@ on:
         required: true
         type: string
       release_tag:
-        description: '发布标签，例如 v4.2.33.0-quicklook.7'
+        description: '发布标签，例如 v4.2.33-rc.7'
         required: true
         type: string
 permissions:
@@ -29,7 +29,7 @@ jobs:
         shell: pwsh
         run: |
           if ($env:SOURCE_RUN -notmatch '^\d+$') { throw '无效的运行 ID' }
-          if ($env:RELEASE_TAG -notmatch '^v[0-9.]+-quicklook\.[0-9]+$') { throw '无效的标签' }
+          if ($env:RELEASE_TAG -notmatch '^v\d+\.\d+\.\d+-rc\.\d+$') { throw '无效的标签' }
           $run = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:SOURCE_RUN" | ConvertFrom-Json
           if ($LASTEXITCODE) { throw '读取构建失败' }
           if ($run.conclusion -ne 'success' -or $run.head_branch -ne 'main' -or $run.path -ne '.github/workflows/embedded-quicklook.yml' -or $run.head_repository.full_name -ne $env:GITHUB_REPOSITORY) { throw '来源必须是本仓库 main 分支成功的 QuickLook 构建' }
@@ -54,10 +54,13 @@ jobs:
           & 'C:\Program Files\7-Zip\7z.exe' x $exe '-oartifacts/verify' 'Install-FilesQuickLook.ps1' -y
           if ($LASTEXITCODE) { throw '提取安装脚本失败' }
           if ((Get-FileHash artifacts/verify/Install-FilesQuickLook.ps1).Hash -ne (Get-FileHash integrations/Install-FilesQuickLook.ps1).Hash) { throw '内嵌脚本与来源提交不一致' }
+          $namedExe = "artifacts/installer/Files-QuickLook-$env:RELEASE_TAG-x64-Setup.exe"
+          Move-Item -LiteralPath $exe -Destination $namedExe
+          $exe = $namedExe
           $hash = (Get-FileHash $exe -Algorithm SHA256).Hash
-          "$hash *Files-QuickLook-Setup.exe" | Set-Content "$exe.sha256" -Encoding ascii
+          "$hash *$(Split-Path $exe -Leaf)" | Set-Content "$exe.sha256" -Encoding ascii
           $notes = Get-Content integrations/安装目录修复说明.md -Raw -Encoding UTF8
           $notes += "`n`n构建来源：main，提交 $env:SOURCE_SHA。`n构建记录：https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:SOURCE_RUN`n`n本版本从已通过的 main 构建发布，与 .6 功能一致，不需要重复安装。`n"
           $notes | Set-Content artifacts/release-notes.md -Encoding utf8
-          gh release create $env:RELEASE_TAG $exe "$exe.sha256" --repo $env:GITHUB_REPOSITORY --target $env:SOURCE_SHA --prerelease --title "Files DEV $env:RELEASE_TAG（main EXE 安装版）" --notes-file artifacts/release-notes.md
+          gh release create $env:RELEASE_TAG $exe "$exe.sha256" --repo $env:GITHUB_REPOSITORY --target $env:SOURCE_SHA --prerelease --title "Files QuickLook $env:RELEASE_TAG" --notes-file artifacts/release-notes.md
           if ($LASTEXITCODE) { throw '发布失败' }
