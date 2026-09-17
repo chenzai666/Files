@@ -1,7 +1,7 @@
 name: 构建内嵌 QuickLook 测试版
 on:
   push:
-    branches: [feature/quicklook-full-port]
+    branches: [main]
   workflow_dispatch:
     inputs:
       release_tag:
