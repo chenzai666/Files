@@ -118,9 +118,13 @@ namespace Files.App.Views.Properties
 			}
 		}
 
+		// Drag regions are relative to the window, so they only need to be refreshed when the
+		// size, visibility or presenter changes. Refreshing on every position change (which
+		// fires continuously while dragging the window) makes dragging stutter.
 		private void AppWindow_Changed(AppWindow sender, AppWindowChangedEventArgs e)
 		{
-			Window.RaiseSetTitleBarDragRegion(SetTitleBarDragRegion);
+			if (e.DidSizeChange || e.DidVisibilityChange || e.DidPresenterChange)
+				Window.RaiseSetTitleBarDragRegion(SetTitleBarDragRegion);
 		}
 
 		public override async Task<bool> SaveChangesAsync()
