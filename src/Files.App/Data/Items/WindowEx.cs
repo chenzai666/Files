@@ -27,6 +27,10 @@ namespace Files.App.Data.Items
 		private bool _isRestoringPlacement;
 		private WINDOWPLACEMENT _lastOverlappedPlacement;
 		private bool _hasOverlappedPlacement;
+		// Cached presenter-kind check for high-frequency window messages (e.g. WM_WINDOWPOSCHANGED
+		// while dragging). Querying AppWindow.Presenter per message is a WinRT COM interop call and
+		// measurably stutters window dragging.
+		private sbyte _isOverlappedPresenterCached = -1;
 		private readonly nint _oldWndProc;
 		private readonly WNDPROC _newWndProc;
 
@@ -288,6 +292,23 @@ namespace Files.App.Data.Items
 			}
 		}
 
+		/// <summary>
+		/// Returns the cached result of <see cref="IsOverlappedPresenter"/> when available,
+		/// avoiding a WinRT COM interop call on every window message.
+		/// The cache is refreshed when a drag/size-move session starts (WM_ENTERSIZEMOVE)
+		/// and invalidated when it ends, so presenter changes are still picked up.
+		/// </summary>
+		private bool IsOverlappedPresenterCached()
+		{
+			var cached = _isOverlappedPresenterCached;
+			if (cached >= 0)
+				return cached != 0;
+
+			var value = IsOverlappedPresenter();
+			_isOverlappedPresenterCached = (sbyte)(value ? 1 : 0);
+			return value;
+		}
+
 		private LRESULT NewWindowProc(HWND param0, uint param1, WPARAM param2, LPARAM param3)
 		{
 			LRESULT overrideResult = default;
@@ -311,6 +332,21 @@ namespace Files.App.Data.Items
 
 						break;
 					}
+				case 0x0231 /*WM_ENTERSIZEMOVE*/:
+					{
+						// A drag/resize session is starting: refresh the cached presenter kind once
+						// so WM_WINDOWPOSCHANGED (which fires continuously during the drag) can
+						// avoid a WinRT interop call per message.
+						_isOverlappedPresenterCached = -1;
+						IsOverlappedPresenterCached();
+						break;
+					}
+				case 0x0232 /*WM_EXITSIZEMOVE*/:
+					{
+						// Invalidate so presenter changes outside a drag session are picked up
+						_isOverlappedPresenterCached = -1;
+						break;
+					}
 				case 0x0024 /*WM_GETMINMAXINFO*/ when !_isRestoringPlacement:
 					{
 						var dpi = PInvoke.GetDpiForWindow(param0);
@@ -327,8 +363,17 @@ namespace Files.App.Data.Items
 						// Keep the persisted rect: don't let the default handler apply the DPI-suggested rectangle
 						return default;
 					}
-				case 0x0047 /*WM_WINDOWPOSCHANGED*/ when PersistPlacement && IsOverlappedPresenter():
+				case 0x0047 /*WM_WINDOWPOSCHANGED*/ when PersistPlacement && IsOverlappedPresenterCached():
 					{
+						// Skip when the window geometry didn't change (e.g. Z-order/activation-only
+						// updates, which are frequent while dragging): GetWindowPlacement is a
+						// non-trivial P/Invoke call we can avoid per message.
+						var windowPos = Marshal.PtrToStructure<WINDOWPOS>(param3);
+						const SET_WINDOW_POS_FLAGS geometryUnchangedFlags =
+							SET_WINDOW_POS_FLAGS.SWP_NOMOVE | SET_WINDOW_POS_FLAGS.SWP_NOSIZE;
+						if ((windowPos.flags & geometryUnchangedFlags) == geometryUnchangedFlags)
+							break;
+
 						WINDOWPLACEMENT placement = default;
 						PInvoke.GetWindowPlacement(param0, ref placement);
 						_lastOverlappedPlacement = placement;
