@@ -141,6 +141,22 @@ try {
 			throw $deploymentError
 		}
 	}
+
+	# Each install extracts a full copy under Programs\FilesDev\<guid>; prune
+	# directories of versions that are no longer registered so repeated
+	# installs don't accumulate hundreds of megabytes of stale copies.
+	if ($installMode -eq 'DEV-Register') {
+		Get-ChildItem -LiteralPath $registeredPackageRoot -Directory |
+			Where-Object { $_.FullName -ne $registeredPackageDirectory } |
+			ForEach-Object {
+				try {
+					Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction Stop
+					Write-InstallLog "已清理不再注册的旧版本目录 $($_.Name)。"
+				} catch {
+					Write-InstallLog "跳过清理旧版本目录 $($_.Name)：$($_.Exception.Message)"
+				}
+			}
+	}
 	$installed = Get-AppxPackage -Name FilesDev -ErrorAction SilentlyContinue |
 		Sort-Object Version -Descending |
 		Select-Object -First 1
