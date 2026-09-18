@@ -40,6 +40,7 @@ namespace Files.App.Views
 
 		private DispatcherQueueTimer _updateDateDisplayTimer;
 		private WindowMessageMonitor? _titleBarMessageMonitor;
+		private AppWindow? _titleBarAppWindow;
 		private XamlRoot? _titleBarXamlRoot;
 		private double _titleBarRasterizationScale;
 
@@ -329,8 +330,10 @@ namespace Files.App.Views
 		{
 			ViewModel.OnPageLoaded();
 
-			MainWindow.Instance.AppWindow.Changed -= TitleBar_AppWindowChanged;
-			MainWindow.Instance.AppWindow.Changed += TitleBar_AppWindowChanged;
+			if (_titleBarAppWindow is not null)
+				_titleBarAppWindow.Changed -= TitleBar_AppWindowChanged;
+			_titleBarAppWindow = MainWindow.Instance.AppWindow;
+			_titleBarAppWindow.Changed += TitleBar_AppWindowChanged;
 			if (_titleBarXamlRoot is not null)
 				_titleBarXamlRoot.Changed -= TitleBar_XamlRootChanged;
 			_titleBarXamlRoot = XamlRoot;
@@ -375,7 +378,9 @@ namespace Files.App.Views
 
 		private void Page_Unloaded(object sender, RoutedEventArgs e)
 		{
-			MainWindow.Instance.AppWindow.Changed -= TitleBar_AppWindowChanged;
+			if (_titleBarAppWindow is not null)
+				_titleBarAppWindow.Changed -= TitleBar_AppWindowChanged;
+			_titleBarAppWindow = null;
 			if (_titleBarXamlRoot is not null)
 				_titleBarXamlRoot.Changed -= TitleBar_XamlRootChanged;
 			_titleBarXamlRoot = null;
