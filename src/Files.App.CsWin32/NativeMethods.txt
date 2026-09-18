@@ -397,6 +397,7 @@ GetFinalPathNameByHandleW
 FILE_ID_INFO
 FILE_STANDARD_INFO
 ShellExecuteW
+GetCurrentPackageFullName
 SBSP_SAMEBROWSER
 SBSP_ABSOLUTE
 K32EmptyWorkingSet
