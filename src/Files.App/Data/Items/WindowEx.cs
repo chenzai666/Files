@@ -31,6 +31,8 @@ namespace Files.App.Data.Items
 		// while dragging). Querying AppWindow.Presenter per message is a WinRT COM interop call and
 		// measurably stutters window dragging.
 		private sbyte _isOverlappedPresenterCached = -1;
+		// True between WM_ENTERSIZEMOVE and WM_EXITSIZEMOVE, i.e. while a drag/resize session is active
+		private bool _inSizeMove;
 		private readonly nint _oldWndProc;
 		private readonly WNDPROC _newWndProc;
 
@@ -293,13 +295,17 @@ namespace Files.App.Data.Items
 		}
 
 		/// <summary>
-		/// Returns the cached result of <see cref="IsOverlappedPresenter"/> when available,
-		/// avoiding a WinRT COM interop call on every window message.
-		/// The cache is refreshed when a drag/size-move session starts (WM_ENTERSIZEMOVE)
-		/// and invalidated when it ends, so presenter changes are still picked up.
+		/// Returns the presenter-kind check result. During an active drag/resize session
+		/// (WM_ENTERSIZEMOVE..WM_EXITSIZEMOVE) a cached value is used to avoid a WinRT COM
+		/// interop call on every WM_WINDOWPOSCHANGED; outside a session the value is queried
+		/// live so presenter changes (fullscreen/compact overlay toggles, etc.) are always
+		/// reflected.
 		/// </summary>
 		private bool IsOverlappedPresenterCached()
 		{
+			if (!_inSizeMove)
+				return IsOverlappedPresenter();
+
 			var cached = _isOverlappedPresenterCached;
 			if (cached >= 0)
 				return cached != 0;
@@ -337,13 +343,15 @@ namespace Files.App.Data.Items
 						// A drag/resize session is starting: refresh the cached presenter kind once
 						// so WM_WINDOWPOSCHANGED (which fires continuously during the drag) can
 						// avoid a WinRT interop call per message.
+						_inSizeMove = true;
 						_isOverlappedPresenterCached = -1;
 						IsOverlappedPresenterCached();
 						break;
 					}
 				case 0x0232 /*WM_EXITSIZEMOVE*/:
 					{
-						// Invalidate so presenter changes outside a drag session are picked up
+						// Session ended: back to live queries so presenter changes are picked up
+						_inSizeMove = false;
 						_isOverlappedPresenterCached = -1;
 						break;
 					}
