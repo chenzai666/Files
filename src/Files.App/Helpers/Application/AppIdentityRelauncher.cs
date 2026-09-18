@@ -113,7 +113,7 @@ namespace Files.App.Helpers.Application
 
 			foreach (Windows.ApplicationModel.Package package in packages)
 			{
-				if (string.Equals(package.InstalledLocation, packageRoot, StringComparison.OrdinalIgnoreCase))
+				if (string.Equals(package.InstalledLocation?.Path, packageRoot, StringComparison.OrdinalIgnoreCase))
 					return package.Id.FamilyName;
 			}
 
