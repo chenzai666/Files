@@ -260,12 +260,19 @@ namespace Files.App.ViewModels
 					if (UserSettingsService.AppSettingsService.RestoreTabsOnStartup)
 					{
 						UserSettingsService.AppSettingsService.RestoreTabsOnStartup = false;
-						if (UserSettingsService.GeneralSettingsService.LastSessionTabList is not null)
+						if (UserSettingsService.GeneralSettingsService.LastSessionTabList is { Count: > 0 })
 						{
 							await RestoreSessionTabsAsync(UserSettingsService.GeneralSettingsService.LastSessionTabList);
 
 							if (!UserSettingsService.GeneralSettingsService.ContinueLastSessionOnStartUp)
 								UserSettingsService.GeneralSettingsService.LastSessionTabList = null;
+						}
+						else
+						{
+							// The crash-recovery flag can outlive its session list (e.g. the list was
+							// cleared to break a restart loop) — fall back to a new tab instead of
+							// showing an empty window with no tabs.
+							await NavigationHelpers.AddNewTabAsync();
 						}
 					}
 					else if (UserSettingsService.GeneralSettingsService.OpenSpecificPageOnStartup &&
