@@ -2,12 +2,15 @@
 // Licensed under the MIT License.
 
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Xml.Linq;
 using Windows.Management.Deployment;
 using Windows.Win32;
+using Windows.Win32.Foundation;
 using Windows.Win32.System.Com;
 using Windows.Win32.UI.Shell;
+using Windows.Win32.UI.WindowsAndMessaging;
 
 namespace Files.App.Helpers.Application
 {
@@ -20,8 +23,6 @@ namespace Files.App.Helpers.Application
 	/// </summary>
 	internal static unsafe class AppIdentityRelauncher
 	{
-		private const uint APPMODEL_ERROR_NO_PACKAGE = 15700u;
-
 		[ModuleInitializer]
 		internal static void EnsurePackageIdentity()
 		{
@@ -40,7 +41,7 @@ namespace Files.App.Helpers.Application
 		private static bool HasPackageIdentity()
 		{
 			uint length = 0;
-			return PInvoke.GetCurrentPackageFullName(ref length, default) != APPMODEL_ERROR_NO_PACKAGE;
+			return PInvoke.GetCurrentPackageFullName(ref length, default) != WIN32_ERROR.APPMODEL_ERROR_NO_PACKAGE;
 		}
 
 		/// <summary>
@@ -98,7 +99,7 @@ namespace Files.App.Helpers.Application
 					$"错误：{ex.Message}\n\n" +
 					$"请从开始菜单启动 “Files - Dev”，或重新运行安装器。",
 					"Files",
-					0x10u /* MB_ICONERROR */);
+					MESSAGEBOX_STYLE.MB_ICONERROR);
 			}
 		}
 
@@ -110,7 +111,7 @@ namespace Files.App.Helpers.Application
 		{
 			var packages = new PackageManager().FindPackagesForUser(string.Empty);
 
-			foreach (var package in packages)
+			foreach (Windows.ApplicationModel.Package package in packages)
 			{
 				if (string.Equals(package.InstallLocation, packageRoot, StringComparison.OrdinalIgnoreCase))
 					return package.Id.FamilyName;
