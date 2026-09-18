@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Xml.Linq;
 using Windows.Management.Deployment;
 using Windows.Win32;
