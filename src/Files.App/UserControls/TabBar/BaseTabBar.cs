@@ -21,6 +21,8 @@ namespace Files.App.UserControls.TabBar
 
 		public const string TabDropHandledIdentifier = "FilesTabViewItemDropHandled";
 
+		public const string TabPaneSplitHandledIdentifier = "FilesTabPaneSplitHandled";
+
 		public const string TabPathIdentifier = "FilesTabViewItemPath";
 
 		// RecentlyClosedTabs is shared between all multitasking controls

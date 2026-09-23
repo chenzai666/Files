@@ -915,6 +915,10 @@ namespace Files.App.Views
 				: ShellPaneArrangement.Horizontal;
 			var currentPath = GetPane(0)?.TabBarItemParameter?.NavigationParameter as string ?? "Home";
 
+			// Mark the drop as consumed by the pane split so TabDroppedOutside doesn't
+			// additionally open a new window for it.
+			ApplicationData.Current.LocalSettings.Values[BaseTabBar.TabPaneSplitHandledIdentifier] = true;
+
 			OpenSecondaryPane(nearSide ? currentPath : draggedPath, arrangement);
 			if (nearSide)
 			{

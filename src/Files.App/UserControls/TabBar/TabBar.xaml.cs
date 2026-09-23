@@ -151,6 +151,12 @@ namespace Files.App.UserControls.TabBar
 			// Reset value
 			isCancelingDragOperation = false;
 
+			// Clear stale handled flags: a previous drag whose completion order differed
+			// (overlay drop vs. drag-completed vs. dropped-outside) may have left one behind,
+			// which would otherwise close the next dragged tab incorrectly.
+			ApplicationData.Current.LocalSettings.Values.Remove(TabDropHandledIdentifier);
+			ApplicationData.Current.LocalSettings.Values.Remove(TabPaneSplitHandledIdentifier);
+
 			if (args.Item is not TabBarItem { NavigationParameter: { } tabViewItemArgs } tabItem)
 				return;
 
@@ -265,6 +271,16 @@ namespace Files.App.UserControls.TabBar
 
 			if (isCancelingDragOperation)
 				return;
+
+			// The pane-split overlay consumed this drop (a tab dragged onto the content
+			// area creates a pane); without this guard the "dropped outside" handling
+			// would additionally spawn a new window and close the source tab.
+			if (ApplicationData.Current.LocalSettings.Values.TryGetValue(BaseTabBar.TabPaneSplitHandledIdentifier, out var splitHandled) &&
+				splitHandled is true)
+			{
+				ApplicationData.Current.LocalSettings.Values.Remove(BaseTabBar.TabPaneSplitHandledIdentifier);
+				return;
+			}
 
 			PInvoke.GetCursorPos(out var droppedPoint);
 			var droppedTime = DateTimeOffset.UtcNow;
