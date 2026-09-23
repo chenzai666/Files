@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using CommunityToolkit.WinUI;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -61,6 +62,7 @@ namespace Files.App.UserControls.TabBar
 		public static event EventHandler<TabBarItem?>? SelectedTabItemChanged;
 		public static event EventHandler<TabBarItem?>? TabDragStarted;
 		public static event EventHandler<TabBarItem?>? TabDragCompleted;
+		public static event EventHandler<string>? PaneDroppedOnTabStrip;
 
 		// Constructor
 
@@ -244,8 +246,24 @@ namespace Files.App.UserControls.TabBar
 				return;
 			}
 
-			ApplicationData.Current.LocalSettings.Values[TabDropHandledIdentifier] = true;
-			await NavigationHelpers.AddNewTabByParamAsync(tabViewItemArgs.InitialPageType, tabViewItemArgs.NavigationParameter, index);
+			var deferral = e.GetDeferral();
+			try
+			{
+				await NavigationHelpers.AddNewTabByParamAsync(tabViewItemArgs.InitialPageType, tabViewItemArgs.NavigationParameter, index);
+				if (e.DataView.Properties.TryGetValue(PaneDragIdentifier, out var paneDragId) && paneDragId is string id)
+					PaneDroppedOnTabStrip?.Invoke(this, id);
+				else
+					ApplicationData.Current.LocalSettings.Values[TabDropHandledIdentifier] = true;
+			}
+			catch (Exception ex)
+			{
+				App.Logger.LogError(ex, "Failed to add a tab from the dropped item.");
+				e.AcceptedOperation = DataPackageOperation.None;
+			}
+			finally
+			{
+				deferral.Complete();
+			}
 		}
 
 		private void TabView_TabDragCompleted(TabView sender, TabViewTabDragCompletedEventArgs args)
