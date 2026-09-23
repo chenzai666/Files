@@ -40,6 +40,9 @@ namespace Files.App.UserControls.TabBar
 		// This value gets reset at the start of the drag operation
 		private bool isCancelingDragOperation;
 
+		// Cached localized caption for the tab strip drag-over UI
+		private string? _stripDragCaption;
+
 		//private string[] _droppableArchiveTypes = { "zip", "rar", "7z", "tar" };
 
 		// Properties
@@ -181,7 +184,10 @@ namespace Files.App.UserControls.TabBar
 				HorizontalTabView.CanReorderTabs = WindowContext.CanDragAndDrop;
 
 				e.AcceptedOperation = DataPackageOperation.Move;
-				e.DragUIOverride.Caption = Strings.TabStripDragAndDropUIOverrideCaption.GetLocalizedResource();
+				// Cache the caption: this handler fires on every mouse move during the drag
+				// and recomputing the localized string each time adds avoidable drag cost
+				_stripDragCaption ??= Strings.TabStripDragAndDropUIOverrideCaption.GetLocalizedResource();
+				e.DragUIOverride.Caption = _stripDragCaption;
 				e.DragUIOverride.IsCaptionVisible = true;
 				e.DragUIOverride.IsGlyphVisible = false;
 			}

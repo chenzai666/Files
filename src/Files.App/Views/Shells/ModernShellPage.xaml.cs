@@ -54,6 +54,15 @@ namespace Files.App.Views.Shells
 
 			_navigationInteractionTracker = new NavigationInteractionTracker(this, BackIcon, ForwardIcon);
 			_navigationInteractionTracker.NavigationRequested += OverscrollNavigationRequested;
+
+			Loaded += (_, _) =>
+			{
+				// A NavParams value assigned before the pane entered the tree (e.g. a tab
+				// dragged onto a newly created pane) is skipped by the setter and would
+				// otherwise leave the pane permanently empty.
+				if (_NavParams is not null && ItemDisplay.Content is null)
+					OnNavigationParamsChanged();
+			};
 		}
 
 		private async void ShellViewModel_FocusFilterHeader(object? sender, EventArgs e)

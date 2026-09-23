@@ -1,8 +1,10 @@
 ﻿// Copyright (c) Files Community
 // Licensed under the MIT License.
 
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
+using System.Runtime.CompilerServices;
 using Windows.Graphics;
 
 namespace Files.App.Helpers
@@ -11,14 +13,48 @@ namespace Files.App.Helpers
 	{
 		public delegate int SetTitleBarDragRegionDelegate(InputNonClientPointerSource source, SizeInt32 size, double scaleFactor, Func<UIElement, RectInt32?, RectInt32> getScaledRect);
 
+		private static readonly ConditionalWeakTable<Window, DebounceState> _debounceStates = new();
+
+		private sealed class DebounceState
+		{
+			public DispatcherQueueTimer? Timer;
+			public SetTitleBarDragRegionDelegate? Pending;
+		}
+
 		/// <summary>
-		/// Informs the bearer to refresh the drag region.
+		/// Informs the bearer to refresh the drag region. Calls made in quick succession
+		/// (tab reorder animations, window resize, layout passes) are coalesced into a
+		/// single region rebuild — rebuilding per frame floods the window with
+		/// non-client region updates and visibly stutters drags.
 		/// will not set<see cref="NonClientRegionKind.LeftBorder"/>, <see cref="NonClientRegionKind.RightBorder"/>, <see cref="NonClientRegionKind.Caption"/>when titleBarHeight less than 0
 		/// </summary>
 		/// <param name="element"></param>
 		/// <param name="window"></param>
 		/// <param name="setTitleBarDragRegion"></param>
 		public static void RaiseSetTitleBarDragRegion(this Window window, SetTitleBarDragRegionDelegate setTitleBarDragRegion)
+		{
+			var state = _debounceStates.GetOrCreateValue(window);
+			state.Pending = setTitleBarDragRegion;
+
+			if (state.Timer is null)
+			{
+				state.Timer = window.DispatcherQueue.CreateTimer();
+				state.Timer.Interval = TimeSpan.FromMilliseconds(80);
+				state.Timer.IsRepeating = false;
+				state.Timer.Tick += (_, _) =>
+				{
+					state.Timer.Stop();
+					if (state.Pending is not null)
+						RaiseSetTitleBarDragRegionNow(window, state.Pending);
+				};
+			}
+
+			// Restart the window so only the last request in a burst is applied
+			state.Timer.Stop();
+			state.Timer.Start();
+		}
+
+		private static void RaiseSetTitleBarDragRegionNow(Window window, SetTitleBarDragRegionDelegate setTitleBarDragRegion)
 		{
 			if (!window.AppWindow.IsVisible)
 				return;
