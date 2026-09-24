@@ -34,8 +34,6 @@ namespace Files.App.UserControls.TabBar
 		private string? _activeExternalTabDragId;
 		private string? _handledExternalTabDragId;
 		private bool _isDraggingLocalTab;
-		private DateTimeOffset _lastDragTrace;
-		private DragEventArgs? _pendingExternalDropEvent;
 
 		// Starting position when dragging a tab
 		private System.Drawing.Point dragStartPoint;
@@ -78,8 +76,6 @@ namespace Files.App.UserControls.TabBar
 		public TabBar()
 		{
 			InitializeComponent();
-			TitlebarArea.AddHandler(UIElement.DragOverEvent, new DragEventHandler(ExternalTabBar_DragOver), true);
-			TitlebarArea.AddHandler(UIElement.DropEvent, new DragEventHandler(ExternalTabBar_Drop), true);
 
 			tabHoverTimer.Interval = TimeSpan.FromMilliseconds(Constants.DragAndDrop.HoverToOpenTimespan);
 			tabHoverTimer.Tick += TabHoverSelected;
@@ -151,7 +147,6 @@ namespace Files.App.UserControls.TabBar
 
 		private async void TabViewItem_DragEnter(object sender, DragEventArgs e)
 		{
-			TraceDragFormats(e, "tab item");
 			if (AcceptExternalTabDrag(e))
 				return;
 
@@ -209,7 +204,6 @@ namespace Files.App.UserControls.TabBar
 			_activeExternalTabDragId = Guid.NewGuid().ToString("N");
 			_isDraggingLocalTab = true;
 			args.Data.SetData(ExternalTabDragFormat, $"{_activeExternalTabDragId}\n{serializedTab}");
-			App.Logger.LogInformation("Tab drag started in process {ProcessId}, custom format added.", Environment.ProcessId);
 			args.Data.RequestedOperation = DataPackageOperation.Move;
 
 			// Get cursor position & time to track how far the tab was dragged.
@@ -234,7 +228,6 @@ namespace Files.App.UserControls.TabBar
 
 		private void TabView_TabStripDragOver(object sender, DragEventArgs e)
 		{
-			TraceDragFormats(e, "tab strip");
 			if (AcceptExternalTabDrag(e))
 				return;
 
@@ -336,49 +329,12 @@ namespace Files.App.UserControls.TabBar
 		private bool IsExternalTabDrag(DragEventArgs e)
 			=> !_isDraggingLocalTab && e.DataView.Contains(ExternalTabDragFormat);
 
-		private void ExternalTabBar_DragOver(object sender, DragEventArgs e)
-		{
-			TraceDragFormats(e, "title bar");
-			AcceptExternalTabDrag(e);
-		}
-
-		private async void ExternalTabBar_Drop(object sender, DragEventArgs e)
-		{
-			if (!IsExternalTabDrag(e))
-				return;
-
-			var index = -1;
-			for (var i = 0; i < Items.Count; i++)
-			{
-				if (HorizontalTabView.ContainerFromIndex(i) is not TabViewItem tab)
-					continue;
-
-				var point = e.GetPosition(tab);
-				if (point.X >= 0 && point.X <= tab.ActualWidth && point.Y >= 0 && point.Y <= tab.ActualHeight)
-				{
-					index = point.X > tab.ActualWidth / 2 ? i + 1 : i;
-					break;
-				}
-			}
-
-			await DropExternalTabAsync(e, index);
-		}
-
-		private void TraceDragFormats(DragEventArgs e, string area)
-		{
-			if (DateTimeOffset.UtcNow - _lastDragTrace < TimeSpan.FromSeconds(1))
-				return;
-
-			_lastDragTrace = DateTimeOffset.UtcNow;
-			App.Logger.LogInformation("Tab drag over {Area} in process {ProcessId}: local={IsLocal}, custom={HasCustom}, formats={Formats}",
-				area, Environment.ProcessId, _isDraggingLocalTab, e.DataView.Contains(ExternalTabDragFormat), string.Join(",", e.DataView.AvailableFormats));
-		}
-
 		private bool AcceptExternalTabDrag(DragEventArgs e)
 		{
 			if (!IsExternalTabDrag(e))
 				return false;
 
+			HorizontalTabView.CanReorderTabs = false;
 			e.AcceptedOperation = DataPackageOperation.Move;
 			e.Handled = true;
 			return true;
@@ -386,10 +342,6 @@ namespace Files.App.UserControls.TabBar
 
 		private async Task DropExternalTabAsync(DragEventArgs e, int index)
 		{
-			if (ReferenceEquals(_pendingExternalDropEvent, e))
-				return;
-
-			_pendingExternalDropEvent = e;
 			e.Handled = true;
 			var deferral = e.GetDeferral();
 			try
@@ -420,7 +372,6 @@ namespace Files.App.UserControls.TabBar
 			}
 			finally
 			{
-				_pendingExternalDropEvent = null;
 				HorizontalTabView.CanReorderTabs = WindowContext.CanDragAndDrop;
 				deferral.Complete();
 			}
@@ -490,7 +441,6 @@ namespace Files.App.UserControls.TabBar
 
 		private void DragAreaRectangle_DragOver(object sender, DragEventArgs e)
 		{
-			TraceDragFormats(e, "drag area");
 			if (!AcceptPaneDrag(e))
 				AcceptExternalTabDrag(e);
 		}
@@ -651,7 +601,6 @@ namespace Files.App.UserControls.TabBar
 
 		private async void TabBarAddNewTabButton_DragOver(object sender, DragEventArgs e)
 		{
-			TraceDragFormats(e, "new tab button");
 			if (AcceptExternalTabDrag(e))
 				return;
 
