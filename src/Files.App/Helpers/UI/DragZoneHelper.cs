@@ -33,6 +33,9 @@ namespace Files.App.Helpers
 		/// <param name="setTitleBarDragRegion"></param>
 		public static void RaiseSetTitleBarDragRegion(this Window window, SetTitleBarDragRegionDelegate setTitleBarDragRegion)
 		{
+			if (window is MainWindow && App.AppModel.IsMainWindowClosed)
+				return;
+
 			var state = _debounceStates.GetOrCreateValue(window);
 			state.Pending = setTitleBarDragRegion;
 
@@ -63,6 +66,9 @@ namespace Files.App.Helpers
 
 		private static void RaiseSetTitleBarDragRegionNow(Window window, SetTitleBarDragRegionDelegate setTitleBarDragRegion)
 		{
+			if (window is MainWindow && App.AppModel.IsMainWindowClosed)
+				return;
+
 			if (!window.AppWindow.IsVisible)
 				return;
 			// UIElement.RasterizationScale is always 1

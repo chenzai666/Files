@@ -44,6 +44,8 @@ namespace Files.App.Views
 		private XamlRoot? _titleBarXamlRoot;
 		private double _titleBarRasterizationScale;
 		private bool _paneDragInProgress;
+		private ITabBarItemContent? _selectedTabContent;
+		private int _tabSelectionVersion;
 
 		private readonly Dictionary<TabBarItem, double> _sidebarScrollByTab = new();
 		private TabBarItem? _previousSidebarTab;
@@ -124,14 +126,21 @@ namespace Files.App.Views
 
 		private void HorizontalMultitaskingControl_Loaded(object sender, RoutedEventArgs e)
 		{
-			TabControl.DragArea.SizeChanged += (_, _) => MainWindow.Instance.RaiseSetTitleBarDragRegion(SetTitleBarDragRegion);
-			TabControl.SizeChanged += (_, _) => MainWindow.Instance.RaiseSetTitleBarDragRegion(SetTitleBarDragRegion);
+			TabControl.DragArea.SizeChanged -= TabControl_SizeChanged;
+			TabControl.DragArea.SizeChanged += TabControl_SizeChanged;
+			TabControl.SizeChanged -= TabControl_SizeChanged;
+			TabControl.SizeChanged += TabControl_SizeChanged;
 			if (ViewModel.MultitaskingControl is not TabBar)
 			{
 				ViewModel.MultitaskingControl = TabControl;
 				ViewModel.MultitaskingControls.Add(TabControl);
 				ViewModel.MultitaskingControl.CurrentInstanceChanged += MultitaskingControl_CurrentInstanceChanged;
 			}
+		}
+
+		private void TabControl_SizeChanged(object sender, SizeChangedEventArgs e)
+		{
+			MainWindow.Instance.RaiseSetTitleBarDragRegion(SetTitleBarDragRegion);
 		}
 
 		private int SetTitleBarDragRegion(InputNonClientPointerSource source, SizeInt32 size, double scaleFactor, Func<UIElement, RectInt32?, RectInt32> getScaledRect)
@@ -172,7 +181,8 @@ namespace Files.App.Views
 
 		public async void TabItemContent_ContentChanged(object? sender, TabBarItemParameter e)
 		{
-			if (SidebarAdaptiveViewModel.PaneHolder is null)
+			if (SidebarAdaptiveViewModel.PaneHolder is null ||
+				!ReferenceEquals(sender, _selectedTabContent) || App.AppModel.IsMainWindowClosed)
 				return;
 
 			var paneArgs = e.NavigationParameter as PaneNavigationArguments;
@@ -191,8 +201,13 @@ namespace Files.App.Views
 		public async void MultitaskingControl_CurrentInstanceChanged(object? sender, CurrentInstanceChangedEventArgs e)
 		{
 			// Add null check for the event args and CurrentInstance
-			if (e?.CurrentInstance == null)
+			if (e?.CurrentInstance == null || App.AppModel.IsMainWindowClosed)
 				return;
+
+			var selectionVersion = ++_tabSelectionVersion;
+			if (_selectedTabContent is not null)
+				_selectedTabContent.ContentChanged -= TabItemContent_ContentChanged;
+			_selectedTabContent = e.CurrentInstance;
 
 			// Safely unsubscribe from previous instance
 			if (SidebarAdaptiveViewModel?.PaneHolder is not null)
@@ -219,12 +234,19 @@ namespace Files.App.Views
 			e.CurrentInstance.ContentChanged -= TabItemContent_ContentChanged;
 			e.CurrentInstance.ContentChanged += TabItemContent_ContentChanged;
 
-			await NavigationHelpers.UpdateInstancePropertiesAsync(navArgs);
+			// A tab switch already has a title; avoid loading shell icons again.
+			var selectedTab = ViewModel.SelectedTabItem;
+			if (ReferenceEquals(selectedTab?.TabItemContent, e.CurrentInstance) && selectedTab.Description is { } title)
+				MainWindow.Instance.AppWindow.Title = $"{title} - Files";
+			else
+				await NavigationHelpers.UpdateInstancePropertiesAsync(navArgs);
 
-			// Focus the content of the selected tab item (this also avoids an issue where the Omnibar sometimes steals the focus)
-			await Task.Delay(100);
-			if (!App.AppModel.IsMainWindowClosed && ContentPageContext?.ShellPage?.PaneHolder != null)
-				ContentPageContext.ShellPage.PaneHolder.FocusActivePane();
+			DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
+			{
+				if (!App.AppModel.IsMainWindowClosed && selectionVersion == _tabSelectionVersion &&
+					ReferenceEquals(ViewModel.SelectedTabItem?.TabItemContent, e.CurrentInstance))
+					ContentPageContext.ShellPage?.PaneHolder?.FocusActivePane();
+			});
 		}
 
 		private void PaneHolder_PropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -563,7 +585,11 @@ namespace Files.App.Views
 
 			var savedOffset = _sidebarScrollByTab.GetValueOrDefault(newTab);
 			// Defer to after the flat-tree's tab-state restoration dispatcher work so the content extent has caught up before scrolling.
-			DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () => SidebarControl.ScrollToVerticalOffset(savedOffset));
+			DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
+			{
+				if (!App.AppModel.IsMainWindowClosed && ReferenceEquals(newTab, ViewModel.SelectedTabItem))
+					SidebarControl.ScrollToVerticalOffset(savedOffset);
+			});
 		}
 
 		internal void DetachTabContent(TabBarItem tabItem)

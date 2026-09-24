@@ -156,8 +156,14 @@ namespace Files.App.UserControls.TabBar
 			if (sender is not TabViewItem { DataContext: TabBarItem { TabItemContent: { } tabContent } } tabViewItem)
 				return;
 
+			// Local tab moves belong to TabView's reorder operation.
+			if (_isDraggingLocalTab)
+				return;
+
+			hoveredTabViewItem = tabViewItem;
 			await tabContent.TabItemDragOver(sender, e);
-			if (e.AcceptedOperation != DataPackageOperation.None)
+			if (ReferenceEquals(hoveredTabViewItem, tabViewItem) &&
+				e.AcceptedOperation != DataPackageOperation.None)
 			{
 				HorizontalTabView.CanReorderTabs = false;
 				tabHoverTimer.Start();
@@ -171,10 +177,16 @@ namespace Files.App.UserControls.TabBar
 				AcceptExternalTabDrag(e);
 		}
 
-		private void TabViewItem_DragLeave(object sender, DragEventArgs e)
+		private void ResetDragHoverState()
 		{
 			tabHoverTimer.Stop();
 			hoveredTabViewItem = null;
+			HorizontalTabView.CanReorderTabs = WindowContext.CanDragAndDrop;
+		}
+
+		private void TabViewItem_DragLeave(object sender, DragEventArgs e)
+		{
+			ResetDragHoverState();
 		}
 
 		// Select tab that is hovered over for a certain duration
@@ -254,7 +266,7 @@ namespace Files.App.UserControls.TabBar
 
 		private void TabView_DragLeave(object sender, DragEventArgs e)
 		{
-			HorizontalTabView.CanReorderTabs = WindowContext.CanDragAndDrop;
+			ResetDragHoverState();
 		}
 
 		[DynamicWindowsRuntimeCast(typeof(TabView))]
@@ -459,6 +471,7 @@ namespace Files.App.UserControls.TabBar
 		private void TabView_TabDragCompleted(TabView sender, TabViewTabDragCompletedEventArgs args)
 		{
 			_isDraggingLocalTab = false;
+			ResetDragHoverState();
 			// Unsubscribe from the key down event, it's only needed when a tab is actively being dragged
 			PreviewKeyDown -= TabDragging_PreviewKeyDown;
 
@@ -473,8 +486,8 @@ namespace Files.App.UserControls.TabBar
 			if (ApplicationData.Current.LocalSettings.Values.ContainsKey(TabDropHandledIdentifier) &&
 				(bool)ApplicationData.Current.LocalSettings.Values[TabDropHandledIdentifier])
 				CloseTab(args.Item as TabBarItem);
-			else
-				HorizontalTabView.SelectedItem = args.Tab;
+			else if (args.Item is TabBarItem selectedTab && Items.Contains(selectedTab))
+				HorizontalTabView.SelectedItem = selectedTab;
 
 			ApplicationData.Current.LocalSettings.Values.Remove(TabDropHandledIdentifier);
 		}

@@ -108,6 +108,7 @@ namespace Files.App.UserControls.TabBar
 
 		public void TabView_Loaded(object sender, RoutedEventArgs e)
 		{
+			CurrentInstanceChanged -= TabView_CurrentInstanceChanged;
 			CurrentInstanceChanged += TabView_CurrentInstanceChanged;
 			OnLoaded?.Invoke(null, this);
 		}
