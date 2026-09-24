@@ -27,12 +27,6 @@ namespace Files.App.UserControls.TabBar
 
 		public const string PaneDragIdentifier = "FilesPaneDragId";
 
-		public const string TabDragIdentifier = "FilesTabDragId";
-
-		public const string TabSourceProcessIdentifier = "FilesTabSourceProcessId";
-
-		public const string ExternalTabDropHandledIdentifier = "FilesExternalTabDropHandled";
-
 		// RecentlyClosedTabs is shared between all multitasking controls
 		public static Stack<TabBarItemParameter[]> RecentlyClosedTabs { get; private set; } = new();
 
