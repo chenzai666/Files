@@ -25,6 +25,12 @@ namespace Files.App.UserControls.TabBar
 
 		public const string TabPathIdentifier = "FilesTabViewItemPath";
 
+		public const string PaneDragIdentifier = "FilesPaneDragId";
+
+		public const string ExternalTabDragFormat = "Files.ExternalTabDrag.v1";
+
+		public const string ExternalTabDropHandledIdentifier = "FilesExternalTabDropHandled";
+
 		// RecentlyClosedTabs is shared between all multitasking controls
 		public static Stack<TabBarItemParameter[]> RecentlyClosedTabs { get; private set; } = new();
 
@@ -102,6 +108,7 @@ namespace Files.App.UserControls.TabBar
 
 		public void TabView_Loaded(object sender, RoutedEventArgs e)
 		{
+			CurrentInstanceChanged -= TabView_CurrentInstanceChanged;
 			CurrentInstanceChanged += TabView_CurrentInstanceChanged;
 			OnLoaded?.Invoke(null, this);
 		}

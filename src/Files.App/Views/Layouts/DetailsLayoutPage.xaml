@@ -253,6 +253,7 @@
 					ScrollViewer.HorizontalScrollMode="Auto"
 					SelectionChanged="FileList_SelectionChanged"
 					SelectionMode="Extended"
+					SizeChanged="FileList_SizeChanged"
 					Tapped="FileList_ItemTapped"
 					Visibility="{x:Bind FolderSettings.IsLayoutModeChanging, Converter={StaticResource NegatedBoolToVisibilityConverter}, Mode=OneWay}">
 
@@ -261,6 +262,7 @@
 						<Grid
 							x:Name="HeaderGrid"
 							Height="40"
+							MinWidth="{Binding Path=MinimumDetailsContentWidth, ElementName=PageRoot, Mode=OneWay}"
 							Margin="-8,0,-8,0"
 							Padding="24,0,0,0"
 							BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
@@ -921,6 +923,7 @@
 							<UserControl>
 								<StackPanel
 									Height="{Binding Path=RowHeight, ElementName=PageRoot, Mode=OneWay}"
+									MinWidth="{Binding Path=MinimumDetailsContentWidth, ElementName=PageRoot, Mode=OneWay}"
 									HorizontalAlignment="Stretch"
 									AutomationProperties.Name="{x:Bind Name, Mode=OneWay}"
 									IsRightTapEnabled="True"

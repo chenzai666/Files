@@ -297,6 +297,9 @@
   <data name="OpenInNewTab" xml:space="preserve">
     <value>Open in new tab</value>
   </data>
+  <data name="DragPaneToTabStrip" xml:space="preserve">
+    <value>Drag to the tab bar to restore as a tab</value>
+  </data>
   <data name="OpenInNewWindow" xml:space="preserve">
     <value>Open in new window</value>
   </data>

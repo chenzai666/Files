@@ -29,6 +29,7 @@ namespace Files.App.Views
 		// Dependency injections
 
 		private IGeneralSettingsService GeneralSettingsService { get; } = Ioc.Default.GetRequiredService<IGeneralSettingsService>();
+		private IWindowContext WindowContext { get; } = Ioc.Default.GetRequiredService<IWindowContext>();
 		private IContentPageContext ContentPageContext { get; } = Ioc.Default.GetRequiredService<IContentPageContext>();
 		private AppModel AppModel { get; } = Ioc.Default.GetRequiredService<AppModel>();
 
@@ -43,6 +44,10 @@ namespace Files.App.Views
 		private bool _wasRightPaneVisible;
 		private NavigationParams? _savedNavParamsRight;
 		private readonly PointerEventHandler _panePointerPressedHandler;
+		private ModernShellPage? _draggedPane;
+		private string? _activePaneDragId;
+		private bool _paneDropAccepted;
+		public static event EventHandler<bool>? PaneDragStateChanged;
 
 		// Properties
 
@@ -292,6 +297,7 @@ namespace Files.App.Views
 
 			TabBar.TabDragStarted += TabBar_TabDragStarted;
 			TabBar.TabDragCompleted += TabBar_TabDragCompleted;
+			TabBar.PaneDroppedOnTabStrip += TabBar_PaneDroppedOnTabStrip;
 		}
 
 		// Public methods
@@ -504,6 +510,9 @@ namespace Files.App.Views
 
 			// Add new pane
 			var page = new ModernShellPage() { PaneHolder = this };
+			page.PaneDragHandle.Tag = page;
+			page.PaneDragHandle.DragStarting += PaneDragHandle_DragStarting;
+			page.PaneDragHandle.DropCompleted += PaneDragHandle_DropCompleted;
 			RootGrid.Children.Add(page);
 
 			if (ShellPaneArrangement is ShellPaneArrangement.Vertical)
@@ -535,6 +544,62 @@ namespace Files.App.Views
 			ActivePane = GetPane(GetPaneCount() - 1);
 
 			NotifyPropertyChanged(nameof(IsMultiPaneActive));
+			UpdatePaneDragHandles();
+		}
+
+		private void UpdatePaneDragHandles()
+		{
+			var visibility = IsMultiPaneActive && WindowContext.CanDragAndDrop
+				? Visibility.Visible
+				: Visibility.Collapsed;
+			foreach (var pane in GetPanes())
+				pane.PaneDragHandle.Visibility = visibility;
+		}
+
+		private void PaneDragHandle_DragStarting(UIElement sender, DragStartingEventArgs e)
+		{
+			if (sender is not FrameworkElement { Tag: ModernShellPage pane } ||
+				!IsMultiPaneActive || !GetPanes().Contains(pane))
+				return;
+
+			var path = pane.TabBarItemParameter?.NavigationParameter as string ?? "Home";
+			var tab = new TabBarItemParameter
+			{
+				InitialPageType = typeof(ShellPanesPage),
+				NavigationParameter = path,
+			};
+			_draggedPane = pane;
+			_activePaneDragId = Guid.NewGuid().ToString("N");
+			_paneDropAccepted = false;
+			e.Data.Properties.Add(BaseTabBar.TabPathIdentifier, tab.Serialize());
+			e.Data.Properties.Add(BaseTabBar.PaneDragIdentifier, _activePaneDragId);
+			e.AllowedOperations = DataPackageOperation.Move;
+			PaneDragStateChanged?.Invoke(this, true);
+		}
+
+		private void PaneDragHandle_DropCompleted(UIElement sender, DropCompletedEventArgs e)
+		{
+			if (sender is FrameworkElement { Tag: ModernShellPage pane } && ReferenceEquals(_draggedPane, pane))
+			{
+				var index = _paneDropAccepted ? GetPanes().ToList().IndexOf(pane) : -1;
+				var wasActive = ReferenceEquals(ActivePane, pane);
+				_draggedPane = null;
+				_activePaneDragId = null;
+				_paneDropAccepted = false;
+				PaneDragStateChanged?.Invoke(this, false);
+				if (index >= 0)
+				{
+					RemovePane(index);
+					if (wasActive && index > 0)
+						ActivePane = GetPane(0);
+				}
+			}
+		}
+
+		private void TabBar_PaneDroppedOnTabStrip(object? sender, string dragId)
+		{
+			if (_activePaneDragId == dragId)
+				_paneDropAccepted = true;
 		}
 
 		private void RemovePane(int index = -1)
@@ -599,6 +664,7 @@ namespace Files.App.Views
 
 			Pane_ContentChanged(null, null!);
 			NotifyPropertyChanged(nameof(IsMultiPaneActive));
+			UpdatePaneDragHandles();
 		}
 
 		private void SetShadow()
@@ -1061,6 +1127,7 @@ namespace Files.App.Views
 
 			TabBar.TabDragStarted -= TabBar_TabDragStarted;
 			TabBar.TabDragCompleted -= TabBar_TabDragCompleted;
+			TabBar.PaneDroppedOnTabStrip -= TabBar_PaneDroppedOnTabStrip;
 
 			MainWindow.Instance.SizeChanged -= MainWindow_SizeChanged;
 
