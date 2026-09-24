@@ -1,4 +1,4 @@
-﻿// Copyright (c) Files Community
+// Copyright (c) Files Community
 // Licensed under the MIT License.
 
 using Microsoft.UI.Dispatching;
@@ -52,6 +52,13 @@ namespace Files.App.Helpers
 			// Restart the window so only the last request in a burst is applied
 			state.Timer.Stop();
 			state.Timer.Start();
+		}
+
+		public static void RaiseSetTitleBarDragRegionImmediately(this Window window, SetTitleBarDragRegionDelegate setTitleBarDragRegion)
+		{
+			if (_debounceStates.TryGetValue(window, out var state))
+				state.Timer?.Stop();
+			RaiseSetTitleBarDragRegionNow(window, setTitleBarDragRegion);
 		}
 
 		private static void RaiseSetTitleBarDragRegionNow(Window window, SetTitleBarDragRegionDelegate setTitleBarDragRegion)

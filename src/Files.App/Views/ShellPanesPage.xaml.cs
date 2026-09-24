@@ -47,6 +47,7 @@ namespace Files.App.Views
 		private ModernShellPage? _draggedPane;
 		private string? _activePaneDragId;
 		private bool _paneDropAccepted;
+		public static event EventHandler<bool>? PaneDragStateChanged;
 
 		// Properties
 
@@ -573,6 +574,7 @@ namespace Files.App.Views
 			e.Data.Properties.Add(BaseTabBar.TabPathIdentifier, tab.Serialize());
 			e.Data.Properties.Add(BaseTabBar.PaneDragIdentifier, _activePaneDragId);
 			e.AllowedOperations = DataPackageOperation.Move;
+			PaneDragStateChanged?.Invoke(this, true);
 		}
 
 		private void PaneDragHandle_DropCompleted(UIElement sender, DropCompletedEventArgs e)
@@ -584,6 +586,7 @@ namespace Files.App.Views
 				_draggedPane = null;
 				_activePaneDragId = null;
 				_paneDropAccepted = false;
+				PaneDragStateChanged?.Invoke(this, false);
 				if (index >= 0)
 				{
 					RemovePane(index);

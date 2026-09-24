@@ -43,6 +43,7 @@ namespace Files.App.Views
 		private AppWindow? _titleBarAppWindow;
 		private XamlRoot? _titleBarXamlRoot;
 		private double _titleBarRasterizationScale;
+		private bool _paneDragInProgress;
 
 		private readonly Dictionary<TabBarItem, double> _sidebarScrollByTab = new();
 		private TabBarItem? _previousSidebarTab;
@@ -136,7 +137,8 @@ namespace Files.App.Views
 		private int SetTitleBarDragRegion(InputNonClientPointerSource source, SizeInt32 size, double scaleFactor, Func<UIElement, RectInt32?, RectInt32> getScaledRect)
 		{
 			var height = (int)TabControl.ActualHeight;
-			source.SetRegionRects(NonClientRegionKind.Passthrough, [getScaledRect(this, new RectInt32(0, 0, (int)(TabControl.ActualWidth + TabControl.Margin.Left - TabControl.DragArea.ActualWidth), height))]);
+			var width = TabControl.ActualWidth + TabControl.Margin.Left - (_paneDragInProgress ? TabControl.DragAreaRightPadding : TabControl.DragArea.ActualWidth);
+			source.SetRegionRects(NonClientRegionKind.Passthrough, [getScaledRect(this, new RectInt32(0, 0, (int)width, height))]);
 			AttachTitleBarMessageMonitor();
 			return height;
 		}
@@ -328,6 +330,7 @@ namespace Files.App.Views
 
 		private void Page_Loaded(object sender, RoutedEventArgs e)
 		{
+			ShellPanesPage.PaneDragStateChanged += ShellPanesPage_PaneDragStateChanged;
 			ViewModel.OnPageLoaded();
 
 			if (_titleBarAppWindow is not null)
@@ -378,12 +381,19 @@ namespace Files.App.Views
 
 		private void Page_Unloaded(object sender, RoutedEventArgs e)
 		{
+			ShellPanesPage.PaneDragStateChanged -= ShellPanesPage_PaneDragStateChanged;
 			if (_titleBarAppWindow is not null)
 				_titleBarAppWindow.Changed -= TitleBar_AppWindowChanged;
 			_titleBarAppWindow = null;
 			if (_titleBarXamlRoot is not null)
 				_titleBarXamlRoot.Changed -= TitleBar_XamlRootChanged;
 			_titleBarXamlRoot = null;
+		}
+
+		private void ShellPanesPage_PaneDragStateChanged(object? sender, bool inProgress)
+		{
+			_paneDragInProgress = inProgress;
+			MainWindow.Instance.RaiseSetTitleBarDragRegionImmediately(SetTitleBarDragRegion);
 		}
 
 		private void PreviewPane_Loaded(object sender, RoutedEventArgs e)

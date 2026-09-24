@@ -30,6 +30,7 @@ namespace Files.App.UserControls.TabBar
 		private TabViewItem? hoveredTabViewItem;
 
 		private bool _lockDropOperation = false;
+		private string? _handledPaneDragId;
 
 		// Starting position when dragging a tab
 		private System.Drawing.Point dragStartPoint;
@@ -56,6 +57,9 @@ namespace Files.App.UserControls.TabBar
 
 		public Rectangle DragArea
 			=> DragAreaRectangle;
+
+		public double DragAreaRightPadding
+			=> RightPaddingColumn.ActualWidth;
 
 		// Events
 
@@ -112,6 +116,15 @@ namespace Files.App.UserControls.TabBar
 
 		private async void TabViewItem_Drop(object sender, DragEventArgs e)
 		{
+			if (TryGetPaneDragId(e, out var paneDragId))
+			{
+				var index = sender is TabViewItem { DataContext: TabBarItem item } ? Items.IndexOf(item) : -1;
+				if (index >= 0 && e.GetPosition((UIElement)sender).X > ((FrameworkElement)sender).ActualWidth / 2)
+					index++;
+				await DropPaneAsTabAsync(e, paneDragId, index);
+				return;
+			}
+
 			if (sender is not TabViewItem { DataContext: TabBarItem { TabItemContent: { } tabContent } })
 				return;
 
@@ -122,6 +135,9 @@ namespace Files.App.UserControls.TabBar
 
 		private async void TabViewItem_DragEnter(object sender, DragEventArgs e)
 		{
+			if (AcceptPaneDrag(e))
+				return;
+
 			if (sender is not TabViewItem { DataContext: TabBarItem { TabItemContent: { } tabContent } } tabViewItem)
 				return;
 
@@ -132,6 +148,11 @@ namespace Files.App.UserControls.TabBar
 				tabHoverTimer.Start();
 				hoveredTabViewItem = tabViewItem;
 			}
+		}
+
+		private void TabViewItem_DragOver(object sender, DragEventArgs e)
+		{
+			AcceptPaneDrag(e);
 		}
 
 		private void TabViewItem_DragLeave(object sender, DragEventArgs e)
@@ -187,6 +208,9 @@ namespace Files.App.UserControls.TabBar
 
 		private void TabView_TabStripDragOver(object sender, DragEventArgs e)
 		{
+			if (AcceptPaneDrag(e))
+				return;
+
 			if (e.DataView.Properties.ContainsKey(TabPathIdentifier))
 			{
 				HorizontalTabView.CanReorderTabs = WindowContext.CanDragAndDrop;
@@ -215,6 +239,11 @@ namespace Files.App.UserControls.TabBar
 		private async void TabView_TabStripDrop(object sender, DragEventArgs e)
 		{
 			HorizontalTabView.CanReorderTabs = WindowContext.CanDragAndDrop;
+			if (TryGetPaneDragId(e, out var paneDragId))
+			{
+				await DropPaneAsTabAsync(e, paneDragId, -1);
+				return;
+			}
 
 			if (!(sender is TabView tabStrip))
 				return;
@@ -250,10 +279,7 @@ namespace Files.App.UserControls.TabBar
 			try
 			{
 				await NavigationHelpers.AddNewTabByParamAsync(tabViewItemArgs.InitialPageType, tabViewItemArgs.NavigationParameter, index);
-				if (e.DataView.Properties.TryGetValue(PaneDragIdentifier, out var paneDragId) && paneDragId is string id)
-					PaneDroppedOnTabStrip?.Invoke(this, id);
-				else
-					ApplicationData.Current.LocalSettings.Values[TabDropHandledIdentifier] = true;
+				ApplicationData.Current.LocalSettings.Values[TabDropHandledIdentifier] = true;
 			}
 			catch (Exception ex)
 			{
@@ -264,6 +290,73 @@ namespace Files.App.UserControls.TabBar
 			{
 				deferral.Complete();
 			}
+		}
+
+		private static bool TryGetPaneDragId(DragEventArgs e, out string paneDragId)
+		{
+			paneDragId = e.DataView.Properties.TryGetValue(PaneDragIdentifier, out var value) ? value as string ?? string.Empty : string.Empty;
+			return !string.IsNullOrEmpty(paneDragId) && e.DataView.Properties.ContainsKey(TabPathIdentifier);
+		}
+
+		private bool AcceptPaneDrag(DragEventArgs e)
+		{
+			if (!TryGetPaneDragId(e, out _))
+				return false;
+
+			HorizontalTabView.CanReorderTabs = false;
+			e.AcceptedOperation = DataPackageOperation.Move;
+			e.Handled = true;
+			return true;
+		}
+
+		private async Task DropPaneAsTabAsync(DragEventArgs e, string paneDragId, int index)
+		{
+			e.Handled = true;
+			if (_handledPaneDragId == paneDragId ||
+				!e.DataView.Properties.TryGetValue(TabPathIdentifier, out var path) || path is not string serializedTab)
+				return;
+
+			TabBarItemParameter tab;
+			try
+			{
+				tab = TabBarItemParameter.Deserialize(serializedTab);
+			}
+			catch (JsonException)
+			{
+				e.AcceptedOperation = DataPackageOperation.None;
+				return;
+			}
+
+			_handledPaneDragId = paneDragId;
+			var deferral = e.GetDeferral();
+			try
+			{
+				await NavigationHelpers.AddNewTabByParamAsync(tab.InitialPageType, tab.NavigationParameter, index);
+				PaneDroppedOnTabStrip?.Invoke(this, paneDragId);
+				e.AcceptedOperation = DataPackageOperation.Move;
+			}
+			catch (Exception ex)
+			{
+				_handledPaneDragId = null;
+				App.Logger.LogError(ex, "Failed to restore a pane as a tab.");
+				e.AcceptedOperation = DataPackageOperation.None;
+			}
+			finally
+			{
+				HorizontalTabView.CanReorderTabs = WindowContext.CanDragAndDrop;
+				deferral.Complete();
+			}
+		}
+
+		private void DragAreaRectangle_DragOver(object sender, DragEventArgs e)
+		{
+			AcceptPaneDrag(e);
+		}
+
+		private async void DragAreaRectangle_Drop(object sender, DragEventArgs e)
+		{
+			if (TryGetPaneDragId(e, out var paneDragId))
+				await DropPaneAsTabAsync(e, paneDragId, -1);
 		}
 
 		private void TabView_TabDragCompleted(TabView sender, TabViewTabDragCompletedEventArgs args)
@@ -360,6 +453,12 @@ namespace Files.App.UserControls.TabBar
 
 		private async void TabBarAddNewTabButton_Drop(object sender, DragEventArgs e)
 		{
+			if (TryGetPaneDragId(e, out var paneDragId))
+			{
+				await DropPaneAsTabAsync(e, paneDragId, -1);
+				return;
+			}
+
 			if (_lockDropOperation || !FilesystemHelpers.HasDraggedStorageItems(e.DataView))
 				return;
 
@@ -384,6 +483,9 @@ namespace Files.App.UserControls.TabBar
 
 		private async void TabBarAddNewTabButton_DragOver(object sender, DragEventArgs e)
 		{
+			if (AcceptPaneDrag(e))
+				return;
+
 			if (!FilesystemHelpers.HasDraggedStorageItems(e.DataView))
 			{
 				e.AcceptedOperation = DataPackageOperation.None;
