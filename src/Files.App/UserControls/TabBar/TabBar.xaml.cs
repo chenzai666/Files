@@ -364,6 +364,24 @@ namespace Files.App.UserControls.TabBar
 			await DropExternalTabAsync(e, index);
 		}
 
+		private void TabHeader_DragOver(object sender, DragEventArgs e)
+		{
+			TraceDragFormats(e, "tab header");
+			AcceptExternalTabDrag(e);
+		}
+
+		[DynamicWindowsRuntimeCast(typeof(Grid))]
+		private async void TabHeader_Drop(object sender, DragEventArgs e)
+		{
+			if (!IsExternalTabDrag(e) || sender is not Grid { DataContext: TabBarItem item } header)
+				return;
+
+			var index = Items.IndexOf(item);
+			if (index >= 0 && e.GetPosition(header).X > header.ActualWidth / 2)
+				index++;
+			await DropExternalTabAsync(e, index);
+		}
+
 		private void TraceDragFormats(DragEventArgs e, string area)
 		{
 			if (DateTimeOffset.UtcNow - _lastDragTrace < TimeSpan.FromSeconds(1))
@@ -693,9 +711,24 @@ namespace Files.App.UserControls.TabBar
 
 		[DynamicWindowsRuntimeCast(typeof(TabViewItem))]
 		[DynamicWindowsRuntimeCast(typeof(ContentControl))]
+		[DynamicWindowsRuntimeCast(typeof(Grid))]
 		private void TabViewItem_Loaded(object sender, RoutedEventArgs e)
 		{
-			if (sender is TabViewItem tvi && tvi.FindDescendant("IconControl") is ContentControl control)
+			if (sender is not TabViewItem tvi)
+				return;
+
+			if (tvi.FindDescendant("TabContainer") is Grid header)
+			{
+				header.AllowDrop = true;
+				header.RemoveHandler(UIElement.DragEnterEvent, new DragEventHandler(TabHeader_DragOver));
+				header.RemoveHandler(UIElement.DragOverEvent, new DragEventHandler(TabHeader_DragOver));
+				header.RemoveHandler(UIElement.DropEvent, new DragEventHandler(TabHeader_Drop));
+				header.AddHandler(UIElement.DragEnterEvent, new DragEventHandler(TabHeader_DragOver), true);
+				header.AddHandler(UIElement.DragOverEvent, new DragEventHandler(TabHeader_DragOver), true);
+				header.AddHandler(UIElement.DropEvent, new DragEventHandler(TabHeader_Drop), true);
+			}
+
+			if (tvi.FindDescendant("IconControl") is ContentControl control)
 			{
 				control.Content = tvi.IconSource?.CreateIconElement();
 				tvi.RegisterPropertyChangedCallback(TabViewItem.IconSourceProperty, (s, args) =>
