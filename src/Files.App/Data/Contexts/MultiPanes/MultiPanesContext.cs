@@ -42,13 +42,16 @@ namespace Files.App.Data.Contexts
 
 		private void Page_CurrentInstanceChanged(object? sender, ShellPanesPage? modifiedPage)
 		{
-			if (_mainPanesPage is not null && !_mainPanesPage.IsCurrentInstance)
-			{
-				UpdatePage(null);
-			}
-			else if (modifiedPage is not null && modifiedPage.IsCurrentInstance)
+			if (modifiedPage is not null && modifiedPage.IsCurrentInstance)
 			{
 				UpdatePage(modifiedPage);
+			}
+			else if (ReferenceEquals(modifiedPage, _mainPanesPage))
+			{
+				// Hand the context directly to the selected page instead of publishing an empty pane.
+				var selectedPage = MainPageViewModel.AppInstances
+					.ElementAtOrDefault(App.AppModel.TabStripSelectedIndex)?.TabItemContent as ShellPanesPage;
+				UpdatePage(ReferenceEquals(selectedPage, modifiedPage) ? null : selectedPage);
 			}
 		}
 

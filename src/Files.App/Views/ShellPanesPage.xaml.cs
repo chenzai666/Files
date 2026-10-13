@@ -1008,8 +1008,11 @@ namespace Files.App.Views
 		{
 			if (sender is UIElement element)
 			{
+				element.GotFocus -= Pane_GotFocus;
 				element.GotFocus += Pane_GotFocus;
+				element.RightTapped -= Pane_RightTapped;
 				element.RightTapped += Pane_RightTapped;
+				element.RemoveHandler(UIElement.PointerPressedEvent, _panePointerPressedHandler);
 				element.AddHandler(UIElement.PointerPressedEvent, _panePointerPressedHandler, true);
 			}
 		}

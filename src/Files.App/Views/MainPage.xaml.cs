@@ -235,7 +235,7 @@ namespace Files.App.Views
 			e.CurrentInstance.ContentChanged += TabItemContent_ContentChanged;
 
 			// A tab switch already has a title; avoid loading shell icons again.
-			var selectedTab = ViewModel.SelectedTabItem;
+			var selectedTab = MainPageViewModel.AppInstances.ElementAtOrDefault(App.AppModel.TabStripSelectedIndex);
 			if (ReferenceEquals(selectedTab?.TabItemContent, e.CurrentInstance) && selectedTab.Description is { } title)
 				MainWindow.Instance.AppWindow.Title = $"{title} - Files";
 			else
@@ -558,13 +558,13 @@ namespace Files.App.Views
 			}
 		}
 
-		private async void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+		private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
 		{
 			if (e.PropertyName == nameof(ViewModel.ShouldPreviewPaneBeActive))
 			{
 				var infoPaneViewModel = Ioc.Default.GetRequiredService<InfoPaneViewModel>();
 				if (ViewModel.ShouldPreviewPaneBeActive)
-					await infoPaneViewModel.UpdateSelectedItemPreviewAsync();
+					infoPaneViewModel.RequestSelectionPreview();
 				else
 					infoPaneViewModel.UnloadPreview();
 			}

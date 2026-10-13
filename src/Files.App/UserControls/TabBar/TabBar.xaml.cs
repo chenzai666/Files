@@ -100,21 +100,8 @@ namespace Files.App.UserControls.TabBar
 					: -1;
 			}
 
-			if (App.AppModel.TabStripSelectedIndex >= 0 && App.AppModel.TabStripSelectedIndex < Items.Count)
-			{
-				CurrentSelectedAppInstance = GetCurrentSelectedTabInstance();
-
-				if (CurrentSelectedAppInstance is not null)
-				{
-					OnCurrentInstanceChanged(new CurrentInstanceChangedEventArgs()
-					{
-						CurrentInstance = CurrentSelectedAppInstance,
-						PageInstances = GetAllTabInstances()
-					});
-				}
-			}
-
 			HorizontalTabView.SelectedIndex = App.AppModel.TabStripSelectedIndex;
+			TabView_SelectionChanged(sender, null);
 		}
 
 		private async void TabViewItem_Drop(object sender, DragEventArgs e)
