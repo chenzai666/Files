@@ -77,7 +77,7 @@ jobs:
         run: |
           msbuild Files.slnx -t:Restore -p:Configuration=Debug -p:Platform=x64 -v:quiet -clp:ErrorsOnly
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          msbuild src/Files.App/Files.App.csproj -p:Configuration=Debug -p:Platform=x64 -p:PublishAot=false -p:PublishTrimmed=false -p:AppxBundle=Never -p:GenerateAppxPackageOnBuild=true -p:UapAppxPackageBuildMode=SideloadOnly -p:AppxPackageSigningEnabled=false -p:AppxPackageDir=${{ github.workspace }}\artifacts\packages\ -v:quiet -clp:ErrorsOnly
+          msbuild src/Files.App/Files.App.csproj -p:Configuration=Debug -p:Platform=x64 -p:Optimize=true -p:PublishAot=false -p:PublishTrimmed=false -p:AppxBundle=Never -p:GenerateAppxPackageOnBuild=true -p:UapAppxPackageBuildMode=SideloadOnly -p:AppxPackageSigningEnabled=false -p:AppxPackageDir=${{ github.workspace }}\artifacts\packages\ -v:quiet -clp:ErrorsOnly
       - name: 构建单文件 EXE 安装器
         shell: pwsh
         run: |

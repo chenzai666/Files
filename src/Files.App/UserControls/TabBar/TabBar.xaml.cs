@@ -479,6 +479,7 @@ namespace Files.App.UserControls.TabBar
 			ApplicationData.Current.LocalSettings.Values.Remove(TabDropHandledIdentifier);
 		}
 
+		[DynamicWindowsRuntimeCast(typeof(Frame))]
 		private async void TabView_TabDroppedOutside(TabView sender, TabViewTabDroppedOutsideEventArgs args)
 		{
 			_isDraggingLocalTab = false;
@@ -516,21 +517,40 @@ namespace Files.App.UserControls.TabBar
 				dragDistance < 100))
 				return;
 
-			var indexOfTabViewItem = sender.TabItems.IndexOf(args.Item);
 			if (args.Item is not TabBarItem { NavigationParameter: { } tabViewItemArgs } tabItem)
 				return;
 
-			var selectedTabViewItemIndex = sender.SelectedIndex;
-
-			Items.Remove(tabItem);
-			if (!await NavigationHelpers.OpenTabInNewWindowAsync(tabViewItemArgs.Serialize(), droppedPoint.X, droppedPoint.Y))
+			try
 			{
-				Items.Insert(indexOfTabViewItem, tabItem);
-				sender.SelectedIndex = selectedTabViewItemIndex;
+				if (!await NavigationHelpers.OpenTabInNewWindowAsync(tabViewItemArgs.Serialize(), droppedPoint.X, droppedPoint.Y))
+					return;
+
+				// Release the source page after the native drag callbacks have unwound.
+				if (!DispatcherQueue.TryEnqueue(() =>
+				{
+					if (App.AppModel.IsMainWindowClosed || !Items.Contains(tabItem))
+						return;
+
+					try
+					{
+						if (MainWindow.Instance.Content is Frame rootFrame && rootFrame.Content is MainPage mainPage)
+							mainPage.DetachTabContent(tabItem);
+						Items.Remove(tabItem);
+						tabItem.Unload();
+						if (Items.Count == 0 && !App.AppModel.IsMainWindowClosed)
+							MainWindow.Instance.Close();
+					}
+					catch (Exception ex)
+					{
+						App.Logger.LogError(ex, "Failed to release the source tab after detaching.");
+					}
+				}))
+					App.Logger.LogWarning("The source tab was retained because its dispatcher is shutting down.");
 			}
-			else
-				// Dispose tab arguments
-				tabItem.Unload();
+			catch (Exception ex)
+			{
+				App.Logger.LogError(ex, "Failed to open the detached tab window.");
+			}
 		}
 
 		private void TabView_PointerWheelChanged(object sender, PointerRoutedEventArgs e)
