@@ -34,6 +34,7 @@ namespace Files.App.UserControls.TabBar
 		private string? _activeExternalTabDragId;
 		private string? _handledExternalTabDragId;
 		private bool _isDraggingLocalTab;
+		private readonly HashSet<TabBarItem> _pendingDragTabClosures = new();
 
 		// Starting position when dragging a tab
 		private System.Drawing.Point dragStartPoint;
@@ -463,20 +464,51 @@ namespace Files.App.UserControls.TabBar
 			PreviewKeyDown -= TabDragging_PreviewKeyDown;
 
 			TabDragCompleted?.Invoke(this, args.Item as TabBarItem);
+			if (args.Item is TabBarItem pendingTab && _pendingDragTabClosures.Contains(pendingTab))
+				return;
+
 			if (WasExternalTabDropHandled())
 			{
 				if (args.Item is TabBarItem movedTab && Items.Contains(movedTab))
-					CloseTab(movedTab);
+					QueueCloseDraggedTab(movedTab);
 				return;
 			}
 
 			if (ApplicationData.Current.LocalSettings.Values.ContainsKey(TabDropHandledIdentifier) &&
 				(bool)ApplicationData.Current.LocalSettings.Values[TabDropHandledIdentifier])
-				CloseTab(args.Item as TabBarItem);
+				QueueCloseDraggedTab(args.Item as TabBarItem);
 			else if (args.Item is TabBarItem selectedTab && Items.Contains(selectedTab))
 				HorizontalTabView.SelectedItem = selectedTab;
 
 			ApplicationData.Current.LocalSettings.Values.Remove(TabDropHandledIdentifier);
+		}
+
+		private void QueueCloseDraggedTab(TabBarItem? tabItem)
+		{
+			if (tabItem is null || !Items.Contains(tabItem) || !_pendingDragTabClosures.Add(tabItem))
+				return;
+
+			// Keep the source page and window alive until the native drag callbacks finish.
+			if (!DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+			{
+				try
+				{
+					if (!App.AppModel.IsMainWindowClosed && Items.Contains(tabItem))
+						CloseTab(tabItem);
+				}
+				catch (Exception ex)
+				{
+					App.Logger.LogError(ex, "Failed to close the source tab after its drop was handled.");
+				}
+				finally
+				{
+					_pendingDragTabClosures.Remove(tabItem);
+				}
+			}))
+			{
+				_pendingDragTabClosures.Remove(tabItem);
+				App.Logger.LogWarning("The moved source tab was retained because its dispatcher is shutting down.");
+			}
 		}
 
 		[DynamicWindowsRuntimeCast(typeof(Frame))]
@@ -501,10 +533,10 @@ namespace Files.App.UserControls.TabBar
 			if (WasExternalTabDropHandled())
 			{
 				if (args.Item is TabBarItem movedTab && Items.Contains(movedTab))
-					CloseTab(movedTab);
+					QueueCloseDraggedTab(movedTab);
 				return;
 			}
-			if (args.Item is TabBarItem closedTab && !Items.Contains(closedTab))
+			if (args.Item is TabBarItem closedTab && (!Items.Contains(closedTab) || _pendingDragTabClosures.Contains(closedTab)))
 				return;
 
 			PInvoke.GetCursorPos(out var droppedPoint);
