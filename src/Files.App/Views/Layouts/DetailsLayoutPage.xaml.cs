@@ -27,7 +27,7 @@ namespace Files.App.Views.Layouts
 	/// <summary>
 	/// Represents the browser page of Details View
 	/// </summary>
-	[WinRT.GeneratedBindableCustomProperty([nameof(RowHeight), nameof(ColumnsViewModel), nameof(MaxWidthForRenameTextbox)], [])]
+	[WinRT.GeneratedBindableCustomProperty([nameof(RowHeight), nameof(ColumnsViewModel), nameof(MaxWidthForRenameTextbox), nameof(MinimumDetailsContentWidth)], [])]
 	public sealed partial class DetailsLayoutPage : BaseGroupableLayoutPage
 	{
 		// Constants
@@ -63,6 +63,20 @@ namespace Files.App.Views.Layouts
 		public ScrollViewer? ContentScroller { get; private set; }
 
 		private double maxWidthForRenameTextbox;
+		private double minimumDetailsContentWidth;
+		public double MinimumDetailsContentWidth
+		{
+			get => minimumDetailsContentWidth;
+			private set
+			{
+				if (value != minimumDetailsContentWidth)
+				{
+					minimumDetailsContentWidth = value;
+					NotifyPropertyChanged(nameof(MinimumDetailsContentWidth));
+				}
+			}
+		}
+
 		public double MaxWidthForRenameTextbox
 		{
 			get => maxWidthForRenameTextbox;
@@ -821,6 +835,11 @@ namespace Files.App.Views.Layouts
 		private void RootGrid_SizeChanged(object? sender, SizeChangedEventArgs? e)
 		{
 			MaxWidthForRenameTextbox = Math.Max(0, RootGrid.ActualWidth - 80);
+		}
+
+		private void FileList_SizeChanged(object sender, SizeChangedEventArgs e)
+		{
+			MinimumDetailsContentWidth = Math.Max(0, e.NewSize.Width - 24);
 		}
 
 		private void GridSplitter_ManipulationStarted(object sender, ManipulationStartedRoutedEventArgs e)

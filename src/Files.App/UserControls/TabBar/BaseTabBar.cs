@@ -25,6 +25,12 @@ namespace Files.App.UserControls.TabBar
 
 		public const string TabPathIdentifier = "FilesTabViewItemPath";
 
+		public const string PaneDragIdentifier = "FilesPaneDragId";
+
+		public const string ExternalTabDragFormat = "Files.ExternalTabDrag.v1";
+
+		public const string ExternalTabDropHandledIdentifier = "FilesExternalTabDropHandled";
+
 		// RecentlyClosedTabs is shared between all multitasking controls
 		public static Stack<TabBarItemParameter[]> RecentlyClosedTabs { get; private set; } = new();
 
@@ -54,32 +60,19 @@ namespace Files.App.UserControls.TabBar
 			return null;
 		}
 
-		private void TabView_CurrentInstanceChanged(object? sender, CurrentInstanceChangedEventArgs e)
-		{
-			foreach (ITabBarItemContent? instance in e.PageInstances!)
-			{
-				if (instance is not null)
-				{
-					instance.IsCurrentInstance = instance == e.CurrentInstance;
-				}
-			}
-		}
-
 		protected void TabView_SelectionChanged(object? sender, SelectionChangedEventArgs? e)
 		{
-			if (App.AppModel.TabStripSelectedIndex >= 0 && App.AppModel.TabStripSelectedIndex < Items.Count)
-			{
-				CurrentSelectedAppInstance = GetCurrentSelectedTabInstance();
+			if (App.AppModel.TabStripSelectedIndex < 0 || App.AppModel.TabStripSelectedIndex >= Items.Count)
+				return;
 
-				if (CurrentSelectedAppInstance is not null)
-				{
-					CurrentInstanceChanged?.Invoke(this, new CurrentInstanceChangedEventArgs()
-					{
-						CurrentInstance = CurrentSelectedAppInstance,
-						PageInstances = GetAllTabInstances()
-					});
-				}
-			}
+			var nextInstance = GetCurrentSelectedTabInstance();
+			if (nextInstance is null)
+				return;
+
+			OnCurrentInstanceChanged(new CurrentInstanceChangedEventArgs()
+			{
+				CurrentInstance = nextInstance
+			});
 		}
 
 		protected void TabView_TabCloseRequested(TabView sender, TabViewTabCloseRequestedEventArgs args)
@@ -92,6 +85,20 @@ namespace Files.App.UserControls.TabBar
 
 		protected void OnCurrentInstanceChanged(CurrentInstanceChangedEventArgs args)
 		{
+			var nextInstance = args.CurrentInstance;
+			if (ReferenceEquals(CurrentSelectedAppInstance, nextInstance) &&
+				(nextInstance is null || nextInstance.IsCurrentInstance))
+				return;
+
+			// Only the departing and arriving pages change activation state.
+			var previousInstance = CurrentSelectedAppInstance;
+			CurrentSelectedAppInstance = nextInstance;
+			if (previousInstance is not null && !ReferenceEquals(previousInstance, nextInstance))
+				previousInstance.IsCurrentInstance = false;
+			if (nextInstance is not null)
+				nextInstance.IsCurrentInstance = true;
+
+			args.PageInstances ??= GetAllTabInstances();
 			CurrentInstanceChanged?.Invoke(this, args);
 		}
 
@@ -102,7 +109,6 @@ namespace Files.App.UserControls.TabBar
 
 		public void TabView_Loaded(object sender, RoutedEventArgs e)
 		{
-			CurrentInstanceChanged += TabView_CurrentInstanceChanged;
 			OnLoaded?.Invoke(null, this);
 		}
 
