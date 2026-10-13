@@ -75,9 +75,33 @@ jobs:
       - name: 构建独立测试安装包
         shell: pwsh
         run: |
-          msbuild Files.slnx -t:Restore -p:Configuration=Debug -p:Platform=x64 -v:quiet -clp:ErrorsOnly
+          msbuild Files.slnx -t:Restore -p:Configuration=Debug -p:Platform=x64 -p:PublishAot=false -p:PublishTrimmed=false -p:PublishReadyToRun=true -p:PublishReadyToRunComposite=false -v:quiet -clp:ErrorsOnly
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          msbuild src/Files.App/Files.App.csproj -p:Configuration=Debug -p:Platform=x64 -p:Optimize=true -p:PublishAot=false -p:PublishTrimmed=false -p:AppxBundle=Never -p:GenerateAppxPackageOnBuild=true -p:UapAppxPackageBuildMode=SideloadOnly -p:AppxPackageSigningEnabled=false -p:AppxPackageDir=${{ github.workspace }}\artifacts\packages\ -v:quiet -clp:ErrorsOnly
+          msbuild src/Files.App/Files.App.csproj -p:Configuration=Debug -p:Platform=x64 -p:Optimize=true -p:PublishAot=false -p:PublishTrimmed=false -p:PublishReadyToRun=true -p:PublishReadyToRunComposite=false -p:AppxBundle=Never -p:GenerateAppxPackageOnBuild=true -p:UapAppxPackageBuildMode=SideloadOnly -p:AppxPackageSigningEnabled=false -p:AppxPackageDir=${{ github.workspace }}\artifacts\packages\ -v:quiet -clp:ErrorsOnly
+      - name: Verify startup precompilation in the complete package
+        shell: pwsh
+        run: |
+          $packages = @(Get-ChildItem -LiteralPath artifacts/packages -Recurse -File -Filter 'Files.App_*_x64_Debug.msix')
+          if ($packages.Count -ne 1) { throw 'Expected one complete x64 package' }
+          $archive = [IO.Compression.ZipFile]::OpenRead($packages[0].FullName)
+          try {
+            $entry = $archive.GetEntry('Files.dll')
+            if ($null -eq $entry) { throw 'Files.dll is missing from the complete package' }
+            $stream = $entry.Open()
+            $buffer = [IO.MemoryStream]::new()
+            try {
+              $stream.CopyTo($buffer)
+              $buffer.Position = 0
+              $reader = [Reflection.PortableExecutable.PEReader]::new($buffer)
+              try {
+                $native = $reader.PEHeaders.CorHeader.ManagedNativeHeaderDirectory
+                if ($native.Size -eq 0) { throw 'The package does not contain ReadyToRun code' }
+                $header = $reader.GetSectionData($native.RelativeVirtualAddress).GetReader()
+                if ($header.ReadUInt32() -ne 0x00525452) { throw 'The native header is not ReadyToRun' }
+                Write-Host 'Complete package contains verified ReadyToRun startup code'
+              } finally { $reader.Dispose() }
+            } finally { $stream.Dispose(); $buffer.Dispose() }
+          } finally { $archive.Dispose() }
       - name: 构建单文件 EXE 安装器
         shell: pwsh
         run: |
