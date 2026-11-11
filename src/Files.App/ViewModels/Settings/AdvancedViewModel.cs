@@ -1,6 +1,7 @@
 // Copyright (c) Files Community
 // Licensed under the MIT License.
 
+using Files.Shared.Helpers;
 using Microsoft.Extensions.Logging;
 using Microsoft.Win32;
 using SevenZip;
@@ -114,24 +115,35 @@ namespace Files.App.ViewModels.Settings
 
 		private async Task SetAsOpenFileDialogAsync()
 		{
-			// Make sure IsSetAsDefaultFileManager is updated
+			// Make sure IsSetAsOpenFileDialog is updated
 			await Task.Yield();
-			if (IsSetAsOpenFileDialog == DetectIsSetAsOpenFileDialog())
-				return;
-
-			var destFolder = Path.Combine(ApplicationData.Current.LocalFolder.Path, "FilesOpenDialog");
-			Directory.CreateDirectory(destFolder);
-			foreach (var file in Directory.GetFiles(Path.Combine(Package.Current.InstalledLocation.Path, "Assets", "FilesOpenDialog")))
-			{
-				if (!SafetyExtensions.IgnoreExceptions(() => File.Copy(file, Path.Combine(destFolder, Path.GetFileName(file)), true), App.Logger))
-				{
-					// Error copying files
-					goto DetectResult;
-				}
-			}
+			var desiredState = IsSetAsOpenFileDialog;
 
 			try
 			{
+				if (desiredState == DetectIsSetAsOpenFileDialog())
+					return;
+
+				var destFolder = Path.Combine(ApplicationData.Current.LocalFolder.Path, "FilesOpenDialog");
+				if (desiredState)
+				{
+					Directory.CreateDirectory(destFolder);
+					foreach (var file in Directory.GetFiles(Path.Combine(Package.Current.InstalledLocation.Path, "Assets", "FilesOpenDialog")))
+					{
+						var destPath = Path.Combine(destFolder, Path.GetFileName(file));
+						if (File.Exists(destPath))
+						{
+							using var source = File.OpenRead(file);
+							using var destination = File.OpenRead(destPath);
+							if (source.Length == destination.Length
+								&& await ChecksumHelpers.CreateSHA256(source, CancellationToken.None) == await ChecksumHelpers.CreateSHA256(destination, CancellationToken.None))
+								continue;
+						}
+
+						File.Copy(file, destPath, true);
+					}
+				}
+
 				var componentNames = new[]
 				{
 					"Files.App.OpenDialog32.dll",
@@ -148,17 +160,38 @@ namespace Files.App.ViewModels.Settings
 					if (!File.Exists(componentPath))
 						continue;
 
-					using var regProc = Process.Start("regsvr32.exe", @$"/s /n {(!IsSetAsOpenFileDialog ? "/u" : "")} /i:user ""{componentPath}""");
-					if (regProc is not null)
+					var systemFolder = componentName.EndsWith("32.dll", StringComparison.OrdinalIgnoreCase) && Environment.Is64BitOperatingSystem
+						? "SysWOW64"
+						: Environment.Is64BitOperatingSystem && !Environment.Is64BitProcess ? "Sysnative" : "System32";
+					var regsvr32Path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), systemFolder, "regsvr32.exe");
+
+					try
+					{
+						using var regProc = Process.Start(regsvr32Path, @$"/s /n {(!desiredState ? "/u" : "")} /i:user ""{componentPath}""");
+						if (regProc is null)
+						{
+							App.Logger.LogWarning("Could not start registration for dialog component {ComponentPath} (enabled: {Enabled})", componentPath, desiredState);
+							continue;
+						}
+
 						await regProc.WaitForExitAsync();
+						if (regProc.ExitCode != 0)
+							App.Logger.LogWarning("Registration for dialog component {ComponentPath} failed with exit code {ExitCode} (enabled: {Enabled})", componentPath, regProc.ExitCode, desiredState);
+					}
+					catch (Exception ex)
+					{
+						App.Logger.LogWarning(ex, "Error updating dialog component {ComponentPath} (enabled: {Enabled})", componentPath, desiredState);
+					}
 				}
 			}
-			catch
+			catch (Exception ex)
 			{
+				App.Logger.LogWarning(ex, "Error updating open/save dialog registration (enabled: {Enabled})", desiredState);
 			}
-
-		DetectResult:
-			IsSetAsOpenFileDialog = DetectIsSetAsOpenFileDialog();
+			finally
+			{
+				IsSetAsOpenFileDialog = DetectIsSetAsOpenFileDialog();
+			}
 		}
 
 		private async Task ImportSettingsAsync()
