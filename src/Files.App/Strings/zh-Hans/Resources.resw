@@ -297,6 +297,9 @@
   <data name="OpenInNewTab" xml:space="preserve">
     <value>在新标签页中打开</value>
   </data>
+  <data name="DragPaneToTabStrip" xml:space="preserve">
+    <value>拖到标签栏，恢复为标签页</value>
+  </data>
   <data name="OpenInNewWindow" xml:space="preserve">
     <value>在新窗口中打开</value>
   </data>

@@ -46,12 +46,13 @@
 		<Grid.RowDefinitions>
 			<RowDefinition Height="Auto" />
 			<RowDefinition Height="Auto" />
+			<RowDefinition Height="Auto" />
 			<RowDefinition Height="*" />
 			<RowDefinition Height="Auto" />
 		</Grid.RowDefinitions>
 
 		<Image
-			Grid.RowSpan="3"
+			Grid.RowSpan="4"
 			HorizontalAlignment="{x:Bind ShellViewModel.FolderBackgroundImageHorizontalAlignment, Mode=OneWay}"
 			VerticalAlignment="{x:Bind ShellViewModel.FolderBackgroundImageVerticalAlignment, Mode=OneWay}"
 			Opacity="{x:Bind ShellViewModel.FolderBackgroundImageOpacity, Mode=OneWay}"
@@ -61,7 +62,7 @@
 		<!--  Swipe Backward Icon  -->
 		<Border
 			x:Name="BackIcon"
-			Grid.RowSpan="3"
+			Grid.RowSpan="4"
 			Width="48"
 			Height="48"
 			Margin="-4,0,0,0"
@@ -83,7 +84,7 @@
 		<!--  Swipe Forward Icon  -->
 		<Border
 			x:Name="ForwardIcon"
-			Grid.RowSpan="3"
+			Grid.RowSpan="4"
 			Width="48"
 			Height="48"
 			Margin="0,0,-4,0"
@@ -156,10 +157,26 @@
 			</StackPanel>
 		</Grid>
 
+		<Border
+			x:Name="PaneDragHandle"
+			Grid.Row="2"
+			x:FieldModifier="public"
+			Height="24"
+			Background="{ThemeResource SubtleFillColorTertiaryBrush}"
+			CanDrag="True"
+			AutomationProperties.Name="{helpers:ResourceString Name=DragPaneToTabStrip}"
+			ToolTipService.ToolTip="{helpers:ResourceString Name=DragPaneToTabStrip}"
+			Visibility="Collapsed">
+			<StackPanel HorizontalAlignment="Center" Orientation="Horizontal" Spacing="6">
+				<FontIcon FontSize="12" Glyph="&#xE76F;" />
+				<TextBlock VerticalAlignment="Center" Text="{helpers:ResourceString Name=DragPaneToTabStrip}" />
+			</StackPanel>
+		</Border>
+
 		<!--  Shell Frame  -->
 		<Frame
 			x:Name="ItemDisplayFrame"
-			Grid.Row="2"
+			Grid.Row="3"
 			x:FieldModifier="public"
 			Navigated="ItemDisplayFrame_Navigated"
 			TabIndex="1" />
@@ -167,7 +184,7 @@
 		<!--  Status Bar  -->
 		<uc:StatusBar
 			x:Name="StatusBar"
-			Grid.Row="3"
+			Grid.Row="4"
 			ShowInfoText="{x:Bind IsStatusBarVisible, Mode=OneWay}"
 			Visibility="{x:Bind IsStatusBarVisible, Mode=OneWay}" />
 

@@ -1,4 +1,4 @@
-﻿<!--  Copyright (c) Files Community. Licensed under the MIT License.  -->
+<!--  Copyright (c) Files Community. Licensed under the MIT License.  -->
 <local:BaseTabBar
 	x:Class="Files.App.UserControls.TabBar.TabBar"
 	xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -212,6 +212,7 @@
 						AllowDrop="{x:Bind AllowStorageItemDrop, Mode=OneWay}"
 						ContextFlyout="{StaticResource TabFlyout}"
 						DragEnter="TabViewItem_DragEnter"
+						DragOver="TabViewItem_DragOver"
 						DragLeave="TabViewItem_DragLeave"
 						Drop="TabViewItem_Drop"
 						Header="{x:Bind Header, Mode=OneWay}"
@@ -260,6 +261,9 @@
 						Grid.ColumnSpan="2"
 						HorizontalAlignment="Stretch"
 						VerticalAlignment="Stretch"
+						AllowDrop="True"
+						DragOver="DragAreaRectangle_DragOver"
+						Drop="DragAreaRectangle_Drop"
 						Fill="Transparent"
 						Loaded="DragAreaRectangle_Loaded" />
 

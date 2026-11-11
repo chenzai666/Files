@@ -21,6 +21,7 @@ namespace Files.App.ViewModels.UserControls
 		private DrivesViewModel drivesViewModel { get; } = Ioc.Default.GetRequiredService<DrivesViewModel>();
 
 		private CancellationTokenSource? loadCancellationTokenSource;
+		private Microsoft.UI.Dispatching.DispatcherQueueTimer? selectionPreviewTimer;
 		private Files.App.UserControls.Menus.FileTagsContextMenu? cachedTagsContextMenu;
 
 		/// <summary>
@@ -148,6 +149,7 @@ namespace Files.App.ViewModels.UserControls
 		{
 			infoPaneSettingsService.PropertyChanged += PreviewSettingsService_OnPropertyChangedEvent;
 			contentPageContext.PropertyChanged += ContentPageContext_PropertyChanged;
+			App.AppModel.PropertyChanged += AppModel_PropertyChanged;
 			CloudDrivesManager.DataChanged += CloudDrivesManager_DataChanged;
 
 			IsEnabled = infoPaneSettingsService.IsInfoPaneEnabled;
@@ -169,45 +171,52 @@ namespace Files.App.ViewModels.UserControls
 			});
 		}
 
-		[DynamicWindowsRuntimeCast(typeof(Frame))]
-		private async void ContentPageContext_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+		private void ContentPageContext_PropertyChanged(object? sender, PropertyChangedEventArgs e)
 		{
-			switch (e.PropertyName)
+			if (e.PropertyName is nameof(IContentPageContext.Folder) or nameof(IContentPageContext.SelectedItem))
+				RequestSelectionPreview();
+		}
+
+		public void RequestSelectionPreview()
+		{
+			if (App.AppModel.IsMainWindowClosed)
+				return;
+
+			if (selectionPreviewTimer is null)
 			{
-				case nameof(IContentPageContext.Folder):
-				case nameof(IContentPageContext.SelectedItem):
-
-					ListedItem? tempSelectedItem = null;
-					if (contentPageContext.SelectedItems.Count == 1)
-						tempSelectedItem = contentPageContext.SelectedItems.First();
-
-					// Don't update preview pane when the selected item changes too frequently
-					const int delayBeforeUpdatingPreviewPane = 100;
-					await Task.Delay(delayBeforeUpdatingPreviewPane);
-					if (tempSelectedItem is not null && !tempSelectedItem.Equals(contentPageContext.SelectedItem))
-						return;
-
-					SelectedItem = tempSelectedItem;
-
-					try
-					{
-						if (!App.AppModel.IsMainWindowClosed)
-						{
-							var shouldUpdatePreview = ((MainWindow.Instance.Content as Frame)?.Content as MainPage)?.ViewModel.ShouldPreviewPaneBeActive;
-							if (shouldUpdatePreview == true)
-								_ = UpdateSelectedItemPreviewAsync();
-						}
-					}
-					catch (Exception ex)
-					{
-						// Handle exception in case WinUI Windows is closed
-						// (see https://github.com/files-community/Files/issues/15599)
-
-						App.Logger.LogWarning(ex, ex.Message);
-					}
-
-					break;
+				selectionPreviewTimer = MainWindow.Instance.DispatcherQueue.CreateTimer();
+				selectionPreviewTimer.Interval = TimeSpan.FromMilliseconds(100);
+				selectionPreviewTimer.IsRepeating = false;
+				selectionPreviewTimer.Tick += SelectionPreviewTimer_Tick;
 			}
+
+			selectionPreviewTimer.Stop();
+			selectionPreviewTimer.Start();
+		}
+
+		[DynamicWindowsRuntimeCast(typeof(Frame))]
+		private void SelectionPreviewTimer_Tick(Microsoft.UI.Dispatching.DispatcherQueueTimer sender, object args)
+		{
+			sender.Stop();
+			if (App.AppModel.IsMainWindowClosed)
+				return;
+
+			SelectedItem = contentPageContext.SelectedItem;
+			try
+			{
+				if (((MainWindow.Instance.Content as Frame)?.Content as MainPage)?.ViewModel.ShouldPreviewPaneBeActive == true)
+					_ = UpdateSelectedItemPreviewAsync();
+			}
+			catch (Exception ex)
+			{
+				App.Logger.LogWarning(ex, ex.Message);
+			}
+		}
+
+		private void AppModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+		{
+			if (e.PropertyName is nameof(AppModel.IsMainWindowClosed) && App.AppModel.IsMainWindowClosed)
+				selectionPreviewTimer?.Stop();
 		}
 
 		private async Task LoadPreviewControlAsync(CancellationToken token, bool downloadItem)
@@ -624,6 +633,13 @@ namespace Files.App.ViewModels.UserControls
 
 		public void Dispose()
 		{
+			App.AppModel.PropertyChanged -= AppModel_PropertyChanged;
+			if (selectionPreviewTimer is not null)
+			{
+				selectionPreviewTimer.Stop();
+				selectionPreviewTimer.Tick -= SelectionPreviewTimer_Tick;
+				selectionPreviewTimer = null;
+			}
 			UnloadPreview();
 			infoPaneSettingsService.PropertyChanged -= PreviewSettingsService_OnPropertyChangedEvent;
 			contentPageContext.PropertyChanged -= ContentPageContext_PropertyChanged;

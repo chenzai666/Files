@@ -90,7 +90,9 @@ namespace Files.App
 				var isStartupTask = appActivationArguments.Data is Windows.ApplicationModel.Activation.IStartupTaskActivatedEventArgs;
 
 				// IsDynamicCodeSupported is false on Native AOT, where startup is fast enough to skip the splash screen
-				var showSplashScreen = System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported;
+				var isDetachedTab = appActivationArguments.Data is Windows.ApplicationModel.Activation.IProtocolActivatedEventArgs protocolArgs &&
+					protocolArgs.Uri.Query.StartsWith("?tab=", StringComparison.Ordinal);
+				var showSplashScreen = System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported && !isDetachedTab;
 
 				if (!isStartupTask)
 				{

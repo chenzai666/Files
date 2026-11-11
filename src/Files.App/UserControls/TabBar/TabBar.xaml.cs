@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using CommunityToolkit.WinUI;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -29,6 +30,11 @@ namespace Files.App.UserControls.TabBar
 		private TabViewItem? hoveredTabViewItem;
 
 		private bool _lockDropOperation = false;
+		private string? _handledPaneDragId;
+		private string? _activeExternalTabDragId;
+		private string? _handledExternalTabDragId;
+		private bool _isDraggingLocalTab;
+		private readonly HashSet<TabBarItem> _pendingDragTabClosures = new();
 
 		// Starting position when dragging a tab
 		private System.Drawing.Point dragStartPoint;
@@ -56,11 +62,15 @@ namespace Files.App.UserControls.TabBar
 		public Rectangle DragArea
 			=> DragAreaRectangle;
 
+		public double DragAreaRightPadding
+			=> RightPaddingColumn.ActualWidth;
+
 		// Events
 
 		public static event EventHandler<TabBarItem?>? SelectedTabItemChanged;
 		public static event EventHandler<TabBarItem?>? TabDragStarted;
 		public static event EventHandler<TabBarItem?>? TabDragCompleted;
+		public static event EventHandler<string>? PaneDroppedOnTabStrip;
 
 		// Constructor
 
@@ -91,25 +101,30 @@ namespace Files.App.UserControls.TabBar
 					: -1;
 			}
 
-			if (App.AppModel.TabStripSelectedIndex >= 0 && App.AppModel.TabStripSelectedIndex < Items.Count)
-			{
-				CurrentSelectedAppInstance = GetCurrentSelectedTabInstance();
-
-				if (CurrentSelectedAppInstance is not null)
-				{
-					OnCurrentInstanceChanged(new CurrentInstanceChangedEventArgs()
-					{
-						CurrentInstance = CurrentSelectedAppInstance,
-						PageInstances = GetAllTabInstances()
-					});
-				}
-			}
-
 			HorizontalTabView.SelectedIndex = App.AppModel.TabStripSelectedIndex;
+			TabView_SelectionChanged(sender, null);
 		}
 
 		private async void TabViewItem_Drop(object sender, DragEventArgs e)
 		{
+			if (IsExternalTabDrag(e))
+			{
+				var index = sender is TabViewItem { DataContext: TabBarItem item } ? Items.IndexOf(item) : -1;
+				if (index >= 0 && e.GetPosition((UIElement)sender).X > ((FrameworkElement)sender).ActualWidth / 2)
+					index++;
+				await DropExternalTabAsync(e, index);
+				return;
+			}
+
+			if (TryGetPaneDragId(e, out var paneDragId))
+			{
+				var index = sender is TabViewItem { DataContext: TabBarItem item } ? Items.IndexOf(item) : -1;
+				if (index >= 0 && e.GetPosition((UIElement)sender).X > ((FrameworkElement)sender).ActualWidth / 2)
+					index++;
+				await DropPaneAsTabAsync(e, paneDragId, index);
+				return;
+			}
+
 			if (sender is not TabViewItem { DataContext: TabBarItem { TabItemContent: { } tabContent } })
 				return;
 
@@ -120,11 +135,23 @@ namespace Files.App.UserControls.TabBar
 
 		private async void TabViewItem_DragEnter(object sender, DragEventArgs e)
 		{
+			if (AcceptExternalTabDrag(e))
+				return;
+
+			if (AcceptPaneDrag(e))
+				return;
+
 			if (sender is not TabViewItem { DataContext: TabBarItem { TabItemContent: { } tabContent } } tabViewItem)
 				return;
 
+			// Local tab moves belong to TabView's reorder operation.
+			if (_isDraggingLocalTab)
+				return;
+
+			hoveredTabViewItem = tabViewItem;
 			await tabContent.TabItemDragOver(sender, e);
-			if (e.AcceptedOperation != DataPackageOperation.None)
+			if (ReferenceEquals(hoveredTabViewItem, tabViewItem) &&
+				e.AcceptedOperation != DataPackageOperation.None)
 			{
 				HorizontalTabView.CanReorderTabs = false;
 				tabHoverTimer.Start();
@@ -132,10 +159,22 @@ namespace Files.App.UserControls.TabBar
 			}
 		}
 
-		private void TabViewItem_DragLeave(object sender, DragEventArgs e)
+		private void TabViewItem_DragOver(object sender, DragEventArgs e)
+		{
+			if (!AcceptPaneDrag(e))
+				AcceptExternalTabDrag(e);
+		}
+
+		private void ResetDragHoverState()
 		{
 			tabHoverTimer.Stop();
 			hoveredTabViewItem = null;
+			HorizontalTabView.CanReorderTabs = WindowContext.CanDragAndDrop;
+		}
+
+		private void TabViewItem_DragLeave(object sender, DragEventArgs e)
+		{
+			ResetDragHoverState();
 		}
 
 		// Select tab that is hovered over for a certain duration
@@ -160,7 +199,11 @@ namespace Files.App.UserControls.TabBar
 			if (args.Item is not TabBarItem { NavigationParameter: { } tabViewItemArgs } tabItem)
 				return;
 
-			args.Data.Properties.Add(TabPathIdentifier, tabViewItemArgs.Serialize());
+			var serializedTab = tabViewItemArgs.Serialize();
+			args.Data.Properties.Add(TabPathIdentifier, serializedTab);
+			_activeExternalTabDragId = Guid.NewGuid().ToString("N");
+			_isDraggingLocalTab = true;
+			args.Data.SetData(ExternalTabDragFormat, $"{_activeExternalTabDragId}\n{serializedTab}");
 			args.Data.RequestedOperation = DataPackageOperation.Move;
 
 			// Get cursor position & time to track how far the tab was dragged.
@@ -185,6 +228,12 @@ namespace Files.App.UserControls.TabBar
 
 		private void TabView_TabStripDragOver(object sender, DragEventArgs e)
 		{
+			if (AcceptExternalTabDrag(e))
+				return;
+
+			if (AcceptPaneDrag(e))
+				return;
+
 			if (e.DataView.Properties.ContainsKey(TabPathIdentifier))
 			{
 				HorizontalTabView.CanReorderTabs = WindowContext.CanDragAndDrop;
@@ -205,7 +254,7 @@ namespace Files.App.UserControls.TabBar
 
 		private void TabView_DragLeave(object sender, DragEventArgs e)
 		{
-			HorizontalTabView.CanReorderTabs = WindowContext.CanDragAndDrop;
+			ResetDragHoverState();
 		}
 
 		[DynamicWindowsRuntimeCast(typeof(TabView))]
@@ -213,6 +262,16 @@ namespace Files.App.UserControls.TabBar
 		private async void TabView_TabStripDrop(object sender, DragEventArgs e)
 		{
 			HorizontalTabView.CanReorderTabs = WindowContext.CanDragAndDrop;
+			if (IsExternalTabDrag(e))
+			{
+				await DropExternalTabAsync(e, -1);
+				return;
+			}
+			if (TryGetPaneDragId(e, out var paneDragId))
+			{
+				await DropPaneAsTabAsync(e, paneDragId, -1);
+				return;
+			}
 
 			if (!(sender is TabView tabStrip))
 				return;
@@ -244,28 +303,218 @@ namespace Files.App.UserControls.TabBar
 				return;
 			}
 
-			ApplicationData.Current.LocalSettings.Values[TabDropHandledIdentifier] = true;
-			await NavigationHelpers.AddNewTabByParamAsync(tabViewItemArgs.InitialPageType, tabViewItemArgs.NavigationParameter, index);
+			var deferral = e.GetDeferral();
+			try
+			{
+				await NavigationHelpers.AddNewTabByParamAsync(tabViewItemArgs.InitialPageType, tabViewItemArgs.NavigationParameter, index);
+				ApplicationData.Current.LocalSettings.Values[TabDropHandledIdentifier] = true;
+			}
+			catch (Exception ex)
+			{
+				App.Logger.LogError(ex, "Failed to add a tab from the dropped item.");
+				e.AcceptedOperation = DataPackageOperation.None;
+			}
+			finally
+			{
+				deferral.Complete();
+			}
+		}
+
+		private static bool TryGetPaneDragId(DragEventArgs e, out string paneDragId)
+		{
+			paneDragId = e.DataView.Properties.TryGetValue(PaneDragIdentifier, out var value) ? value as string ?? string.Empty : string.Empty;
+			return !string.IsNullOrEmpty(paneDragId) && e.DataView.Properties.ContainsKey(TabPathIdentifier);
+		}
+
+		private bool IsExternalTabDrag(DragEventArgs e)
+			=> !_isDraggingLocalTab && e.DataView.Contains(ExternalTabDragFormat);
+
+		private bool AcceptExternalTabDrag(DragEventArgs e)
+		{
+			if (!IsExternalTabDrag(e))
+				return false;
+
+			HorizontalTabView.CanReorderTabs = false;
+			e.AcceptedOperation = DataPackageOperation.Move;
+			e.Handled = true;
+			return true;
+		}
+
+		private async Task DropExternalTabAsync(DragEventArgs e, int index)
+		{
+			e.Handled = true;
+			var deferral = e.GetDeferral();
+			try
+			{
+				var payload = await e.DataView.GetDataAsync(ExternalTabDragFormat) as string;
+				var separator = payload?.IndexOf('\n') ?? -1;
+				if (separator <= 0 || separator == payload!.Length - 1 ||
+					!Guid.TryParseExact(payload[..separator], "N", out _))
+				{
+					e.AcceptedOperation = DataPackageOperation.None;
+					return;
+				}
+
+				var dragId = payload[..separator];
+				if (_handledExternalTabDragId == dragId)
+					return;
+				var tab = TabBarItemParameter.Deserialize(payload[(separator + 1)..]);
+				_handledExternalTabDragId = dragId;
+				await NavigationHelpers.AddNewTabByParamAsync(tab.InitialPageType, tab.NavigationParameter, index);
+				ApplicationData.Current.LocalSettings.Values[ExternalTabDropHandledIdentifier] = dragId;
+				e.AcceptedOperation = DataPackageOperation.Move;
+			}
+			catch (Exception ex)
+			{
+				_handledExternalTabDragId = null;
+				App.Logger.LogError(ex, "Failed to move a tab from another window.");
+				e.AcceptedOperation = DataPackageOperation.None;
+			}
+			finally
+			{
+				HorizontalTabView.CanReorderTabs = WindowContext.CanDragAndDrop;
+				deferral.Complete();
+			}
+		}
+
+		private bool WasExternalTabDropHandled()
+		{
+			if (_activeExternalTabDragId is null ||
+				!ApplicationData.Current.LocalSettings.Values.TryGetValue(ExternalTabDropHandledIdentifier, out var handled) ||
+				handled is not string id || id != _activeExternalTabDragId)
+				return false;
+
+			ApplicationData.Current.LocalSettings.Values.Remove(ExternalTabDropHandledIdentifier);
+			_activeExternalTabDragId = null;
+			return true;
+		}
+
+		private bool AcceptPaneDrag(DragEventArgs e)
+		{
+			if (!TryGetPaneDragId(e, out _))
+				return false;
+
+			HorizontalTabView.CanReorderTabs = false;
+			e.AcceptedOperation = DataPackageOperation.Move;
+			e.Handled = true;
+			return true;
+		}
+
+		private async Task DropPaneAsTabAsync(DragEventArgs e, string paneDragId, int index)
+		{
+			e.Handled = true;
+			if (_handledPaneDragId == paneDragId ||
+				!e.DataView.Properties.TryGetValue(TabPathIdentifier, out var path) || path is not string serializedTab)
+				return;
+
+			TabBarItemParameter tab;
+			try
+			{
+				tab = TabBarItemParameter.Deserialize(serializedTab);
+			}
+			catch (JsonException)
+			{
+				e.AcceptedOperation = DataPackageOperation.None;
+				return;
+			}
+
+			_handledPaneDragId = paneDragId;
+			var deferral = e.GetDeferral();
+			try
+			{
+				await NavigationHelpers.AddNewTabByParamAsync(tab.InitialPageType, tab.NavigationParameter, index);
+				PaneDroppedOnTabStrip?.Invoke(this, paneDragId);
+				e.AcceptedOperation = DataPackageOperation.Move;
+			}
+			catch (Exception ex)
+			{
+				_handledPaneDragId = null;
+				App.Logger.LogError(ex, "Failed to restore a pane as a tab.");
+				e.AcceptedOperation = DataPackageOperation.None;
+			}
+			finally
+			{
+				HorizontalTabView.CanReorderTabs = WindowContext.CanDragAndDrop;
+				deferral.Complete();
+			}
+		}
+
+		private void DragAreaRectangle_DragOver(object sender, DragEventArgs e)
+		{
+			if (!AcceptPaneDrag(e))
+				AcceptExternalTabDrag(e);
+		}
+
+		private async void DragAreaRectangle_Drop(object sender, DragEventArgs e)
+		{
+			if (IsExternalTabDrag(e))
+			{
+				await DropExternalTabAsync(e, -1);
+				return;
+			}
+			if (TryGetPaneDragId(e, out var paneDragId))
+				await DropPaneAsTabAsync(e, paneDragId, -1);
 		}
 
 		private void TabView_TabDragCompleted(TabView sender, TabViewTabDragCompletedEventArgs args)
 		{
+			_isDraggingLocalTab = false;
+			ResetDragHoverState();
 			// Unsubscribe from the key down event, it's only needed when a tab is actively being dragged
 			PreviewKeyDown -= TabDragging_PreviewKeyDown;
 
 			TabDragCompleted?.Invoke(this, args.Item as TabBarItem);
+			if (args.Item is TabBarItem pendingTab && _pendingDragTabClosures.Contains(pendingTab))
+				return;
+
+			if (WasExternalTabDropHandled())
+			{
+				if (args.Item is TabBarItem movedTab && Items.Contains(movedTab))
+					QueueCloseDraggedTab(movedTab);
+				return;
+			}
 
 			if (ApplicationData.Current.LocalSettings.Values.ContainsKey(TabDropHandledIdentifier) &&
 				(bool)ApplicationData.Current.LocalSettings.Values[TabDropHandledIdentifier])
-				CloseTab(args.Item as TabBarItem);
-			else
-				HorizontalTabView.SelectedItem = args.Tab;
+				QueueCloseDraggedTab(args.Item as TabBarItem);
+			else if (args.Item is TabBarItem selectedTab && Items.Contains(selectedTab))
+				HorizontalTabView.SelectedItem = selectedTab;
 
 			ApplicationData.Current.LocalSettings.Values.Remove(TabDropHandledIdentifier);
 		}
 
+		private void QueueCloseDraggedTab(TabBarItem? tabItem)
+		{
+			if (tabItem is null || !Items.Contains(tabItem) || !_pendingDragTabClosures.Add(tabItem))
+				return;
+
+			// Keep the source page and window alive until the native drag callbacks finish.
+			if (!DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+			{
+				try
+				{
+					if (!App.AppModel.IsMainWindowClosed && Items.Contains(tabItem))
+						CloseTab(tabItem);
+				}
+				catch (Exception ex)
+				{
+					App.Logger.LogError(ex, "Failed to close the source tab after its drop was handled.");
+				}
+				finally
+				{
+					_pendingDragTabClosures.Remove(tabItem);
+				}
+			}))
+			{
+				_pendingDragTabClosures.Remove(tabItem);
+				App.Logger.LogWarning("The moved source tab was retained because its dispatcher is shutting down.");
+			}
+		}
+
+		[DynamicWindowsRuntimeCast(typeof(Frame))]
 		private async void TabView_TabDroppedOutside(TabView sender, TabViewTabDroppedOutsideEventArgs args)
 		{
+			_isDraggingLocalTab = false;
 			// Unsubscribe from the key down event, it's only needed when a tab is actively being dragged
 			PreviewKeyDown -= TabDragging_PreviewKeyDown;
 
@@ -281,6 +530,14 @@ namespace Files.App.UserControls.TabBar
 				ApplicationData.Current.LocalSettings.Values.Remove(BaseTabBar.TabPaneSplitHandledIdentifier);
 				return;
 			}
+			if (WasExternalTabDropHandled())
+			{
+				if (args.Item is TabBarItem movedTab && Items.Contains(movedTab))
+					QueueCloseDraggedTab(movedTab);
+				return;
+			}
+			if (args.Item is TabBarItem closedTab && (!Items.Contains(closedTab) || _pendingDragTabClosures.Contains(closedTab)))
+				return;
 
 			PInvoke.GetCursorPos(out var droppedPoint);
 			var droppedTime = DateTimeOffset.UtcNow;
@@ -292,21 +549,40 @@ namespace Files.App.UserControls.TabBar
 				dragDistance < 100))
 				return;
 
-			var indexOfTabViewItem = sender.TabItems.IndexOf(args.Item);
 			if (args.Item is not TabBarItem { NavigationParameter: { } tabViewItemArgs } tabItem)
 				return;
 
-			var selectedTabViewItemIndex = sender.SelectedIndex;
-
-			Items.Remove(tabItem);
-			if (!await NavigationHelpers.OpenTabInNewWindowAsync(tabViewItemArgs.Serialize(), droppedPoint.X, droppedPoint.Y))
+			try
 			{
-				Items.Insert(indexOfTabViewItem, tabItem);
-				sender.SelectedIndex = selectedTabViewItemIndex;
+				if (!await NavigationHelpers.OpenTabInNewWindowAsync(tabViewItemArgs.Serialize(), droppedPoint.X, droppedPoint.Y))
+					return;
+
+				// Release the source page after the native drag callbacks have unwound.
+				if (!DispatcherQueue.TryEnqueue(() =>
+				{
+					if (App.AppModel.IsMainWindowClosed || !Items.Contains(tabItem))
+						return;
+
+					try
+					{
+						if (MainWindow.Instance.Content is Frame rootFrame && rootFrame.Content is MainPage mainPage)
+							mainPage.DetachTabContent(tabItem);
+						Items.Remove(tabItem);
+						tabItem.Unload();
+						if (Items.Count == 0 && !App.AppModel.IsMainWindowClosed)
+							MainWindow.Instance.Close();
+					}
+					catch (Exception ex)
+					{
+						App.Logger.LogError(ex, "Failed to release the source tab after detaching.");
+					}
+				}))
+					App.Logger.LogWarning("The source tab was retained because its dispatcher is shutting down.");
 			}
-			else
-				// Dispose tab arguments
-				tabItem.Unload();
+			catch (Exception ex)
+			{
+				App.Logger.LogError(ex, "Failed to open the detached tab window.");
+			}
 		}
 
 		private void TabView_PointerWheelChanged(object sender, PointerRoutedEventArgs e)
@@ -342,6 +618,17 @@ namespace Files.App.UserControls.TabBar
 
 		private async void TabBarAddNewTabButton_Drop(object sender, DragEventArgs e)
 		{
+			if (IsExternalTabDrag(e))
+			{
+				await DropExternalTabAsync(e, -1);
+				return;
+			}
+			if (TryGetPaneDragId(e, out var paneDragId))
+			{
+				await DropPaneAsTabAsync(e, paneDragId, -1);
+				return;
+			}
+
 			if (_lockDropOperation || !FilesystemHelpers.HasDraggedStorageItems(e.DataView))
 				return;
 
@@ -366,6 +653,12 @@ namespace Files.App.UserControls.TabBar
 
 		private async void TabBarAddNewTabButton_DragOver(object sender, DragEventArgs e)
 		{
+			if (AcceptExternalTabDrag(e))
+				return;
+
+			if (AcceptPaneDrag(e))
+				return;
+
 			if (!FilesystemHelpers.HasDraggedStorageItems(e.DataView))
 			{
 				e.AcceptedOperation = DataPackageOperation.None;

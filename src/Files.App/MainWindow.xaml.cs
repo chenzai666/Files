@@ -114,11 +114,14 @@ namespace Files.App
 							int.TryParse(parsedArgs[2].Split('&')[0], out var dx) &&
 							int.TryParse(parsedArgs[3], out var dy))
 							AppWindow?.Move(new(dx - 100, dy - 16));
-						var folderResult = await FilesystemTasks.Wrap(() => StorageFolder.GetFolderFromPathAsync(unescapedValue).AsTask());
-						if (folderResult.Result is { } folder && !string.IsNullOrEmpty(folder.Path))
+						if (parsedArgs[0] == "folder" && !string.IsNullOrEmpty(unescapedValue))
 						{
-							// Convert short name to long name (#6190)
-							unescapedValue = folder.Path;
+							var folderResult = await FilesystemTasks.Wrap(() => StorageFolder.GetFolderFromPathAsync(unescapedValue).AsTask());
+							if (folderResult.Result is { } folder && !string.IsNullOrEmpty(folder.Path))
+							{
+								// Convert short name to long name (#6190)
+								unescapedValue = folder.Path;
+							}
 						}
 						switch (parsedArgs[0])
 						{

@@ -201,5 +201,10 @@
     <None Include="FilesOpenDialog.rgs" />
     <Midl Include="CustomOpenDialog.idl" />
   </ItemGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
+    <ClCompile>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+    </ClCompile>
+  </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

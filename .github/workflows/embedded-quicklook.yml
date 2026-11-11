@@ -4,6 +4,11 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
+      native_only:
+        description: '仅构建并校验原生对话框组件'
+        required: false
+        default: false
+        type: boolean
       release_tag:
         description: '验证通过后发布的版本标签（留空则仅构建）'
         required: false
@@ -22,13 +27,16 @@ jobs:
         with:
           submodules: true
       - uses: actions/setup-dotnet@v5
+        if: ${{ !inputs.native_only }}
         with:
           global-json-file: global.json
       - uses: microsoft/setup-msbuild@v3
       - name: 构建隔离预览组件
+        if: ${{ !inputs.native_only }}
         shell: pwsh
         run: ./integrations/Build-QuickLookFullHost.ps1
       - uses: actions/upload-artifact@v7
+        if: ${{ !inputs.native_only }}
         with:
           name: Files-QuickLook-preview-runtime
           path: artifacts/quicklook-full
@@ -53,7 +61,7 @@ jobs:
           foreach ($project in $projects) {
             $projectPath = $project.Path
             $projectPlatform = $project.Platform
-            msbuild $projectPath -t:Build -p:Configuration=Debug "-p:Platform=$projectPlatform" "-p:WindowsTargetPlatformVersion=$sdkVersion" "-p:TargetPlatformVersion=$sdkVersion" -v:quiet -clp:ErrorsOnly
+            msbuild $projectPath -t:Build -p:Configuration=Release "-p:Platform=$projectPlatform" "-p:WindowsTargetPlatformVersion=$sdkVersion" "-p:TargetPlatformVersion=$sdkVersion" -v:quiet -clp:ErrorsOnly
             if ($LASTEXITCODE) { throw "原生组件构建失败: $projectPath [$projectPlatform]" }
           }
           $required = @(
@@ -66,6 +74,21 @@ jobs:
           foreach ($file in $required) {
             if (-not (Test-Path -LiteralPath $file)) { throw "缺少原生集成组件: $file" }
           }
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vsRoot = & $vswhere -latest -products '*' -property installationPath
+          $dumpbin = Get-ChildItem -Path (Join-Path $vsRoot 'VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe') | Sort-Object FullName | Select-Object -Last 1
+          if ($null -eq $dumpbin) { throw '找不到 dumpbin.exe' }
+          foreach ($file in $required | Where-Object { $_ -like '*.dll' }) {
+            $imports = & $dumpbin.FullName /dependents $file
+            if ($LASTEXITCODE -or ($imports -match '(?i)(MSVCP[0-9]+D|VCRUNTIME[0-9_]+D|ucrtbased)\.dll')) { throw "组件依赖调试运行库: $file" }
+            $exports = & $dumpbin.FullName /exports $file
+            if ($LASTEXITCODE) { throw "无法检查组件导出: $file" }
+            foreach ($symbol in @('DllInstall', 'DllRegisterServer', 'DllUnregisterServer', 'DllGetClassObject')) {
+              if (-not ($exports -match "\b$symbol\b")) { throw "组件缺少注册导出: $file [$symbol]" }
+            }
+            Write-Host "已校验正式运行库及注册导出: $file"
+          }
+          New-Item -ItemType Directory -Path artifacts -Force | Out-Null
           Compress-Archive -Path 'src/Files.App/Assets/FilesOpenDialog/Files.App.*' -DestinationPath 'artifacts/native-dialog-components.zip' -Force
       - uses: actions/upload-artifact@v7
         with:
@@ -73,22 +96,51 @@ jobs:
           path: artifacts/native-dialog-components.zip
           if-no-files-found: error
       - name: 构建独立测试安装包
+        if: ${{ !inputs.native_only }}
         shell: pwsh
         run: |
-          msbuild Files.slnx -t:Restore -p:Configuration=Debug -p:Platform=x64 -v:quiet -clp:ErrorsOnly
+          msbuild Files.slnx -t:Restore -p:Configuration=Debug -p:Platform=x64 -p:PublishAot=false -p:PublishTrimmed=false -p:PublishReadyToRun=true -p:PublishReadyToRunComposite=false -v:quiet -clp:ErrorsOnly
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          msbuild src/Files.App/Files.App.csproj -p:Configuration=Debug -p:Platform=x64 -p:PublishAot=false -p:PublishTrimmed=false -p:AppxBundle=Never -p:GenerateAppxPackageOnBuild=true -p:UapAppxPackageBuildMode=SideloadOnly -p:AppxPackageSigningEnabled=false -p:AppxPackageDir=${{ github.workspace }}\artifacts\packages\ -v:quiet -clp:ErrorsOnly
+          msbuild src/Files.App/Files.App.csproj -p:Configuration=Debug -p:Platform=x64 -p:Optimize=true -p:PublishAot=false -p:PublishTrimmed=false -p:PublishReadyToRun=true -p:PublishReadyToRunComposite=false -p:AppxBundle=Never -p:GenerateAppxPackageOnBuild=true -p:UapAppxPackageBuildMode=SideloadOnly -p:AppxPackageSigningEnabled=false -p:AppxPackageDir=${{ github.workspace }}\artifacts\packages\ -v:quiet -clp:ErrorsOnly
+      - name: Verify startup precompilation in the complete package
+        if: ${{ !inputs.native_only }}
+        shell: pwsh
+        run: |
+          $packages = @(Get-ChildItem -LiteralPath artifacts/packages -Recurse -File -Filter 'Files.App_*_x64_Debug.msix')
+          if ($packages.Count -ne 1) { throw 'Expected one complete x64 package' }
+          $archive = [IO.Compression.ZipFile]::OpenRead($packages[0].FullName)
+          try {
+            $entry = $archive.GetEntry('Files.dll')
+            if ($null -eq $entry) { throw 'Files.dll is missing from the complete package' }
+            $stream = $entry.Open()
+            $buffer = [IO.MemoryStream]::new()
+            try {
+              $stream.CopyTo($buffer)
+              $buffer.Position = 0
+              $reader = [Reflection.PortableExecutable.PEReader]::new($buffer)
+              try {
+                $native = $reader.PEHeaders.CorHeader.ManagedNativeHeaderDirectory
+                if ($native.Size -eq 0) { throw 'The package does not contain ReadyToRun code' }
+                $header = $reader.GetSectionData($native.RelativeVirtualAddress).GetReader()
+                if ($header.ReadUInt32() -ne 0x00525452) { throw 'The native header is not ReadyToRun' }
+                Write-Host 'Complete package contains verified ReadyToRun startup code'
+              } finally { $reader.Dispose() }
+            } finally { $stream.Dispose(); $buffer.Dispose() }
+          } finally { $archive.Dispose() }
       - name: 构建单文件 EXE 安装器
+        if: ${{ !inputs.native_only }}
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path artifacts\installer | Out-Null
           ./integrations/New-FilesQuickLookInstaller.ps1 -OutputPath artifacts\installer\Files-QuickLook-Setup.exe
       - uses: actions/upload-artifact@v7
+        if: ${{ !inputs.native_only }}
         with:
           name: Files-QuickLook-setup-exe
           path: artifacts/installer/Files-QuickLook-Setup.exe
           if-no-files-found: error
       - name: 导出 DEV 主程序集
+        if: ${{ !inputs.native_only }}
         shell: pwsh
         run: |
           $assembly = Get-ChildItem -LiteralPath 'src/Files.App/bin' -Recurse -Filter 'Files.dll' -File |
@@ -101,22 +153,26 @@ jobs:
           Compress-Archive -Path 'artifacts/main-assembly/Files.dll' -DestinationPath 'artifacts/FilesDev-main-assembly.zip' -Force
           Write-Host "已导出: $($assembly.FullName)"
       - uses: actions/upload-artifact@v7
+        if: ${{ !inputs.native_only }}
         with:
           name: Files-QuickLook-main-assembly
           path: artifacts/FilesDev-main-assembly.zip
           if-no-files-found: error
       - uses: actions/upload-artifact@v7
+        if: ${{ !inputs.native_only }}
         with:
           name: Files-QuickLook-install-only
           path: artifacts/packages/**/*.msix
           if-no-files-found: error
       - name: 保存对应源码和许可证
+        if: ${{ !inputs.native_only }}
         shell: pwsh
         run: |
           git archive HEAD -o artifacts/files-source.zip
           git -C third_party/QuickLook archive HEAD -o ../../artifacts/quicklook-source.zip
           Copy-Item integrations/README.md artifacts/说明.md
       - uses: actions/upload-artifact@v7
+        if: ${{ !inputs.native_only }}
         with:
           name: Files-QuickLook-x64-unsigned
           path: |
@@ -127,7 +183,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+    if: github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && !inputs.native_only
     needs: build
     runs-on: windows-latest
     permissions:

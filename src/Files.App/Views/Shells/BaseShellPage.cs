@@ -19,6 +19,7 @@ namespace Files.App.Views.Shells
 	public abstract class BaseShellPage : Page, IShellPage, INotifyPropertyChanged
 	{
 		private DispatcherQueueTimer? _updateDateDisplayTimer;
+		private bool _dateDisplayRefreshPending;
 
 		private DateTimeFormats _lastDateTimeFormats;
 
@@ -157,7 +158,16 @@ namespace Files.App.Views.Shells
 					{
 						_IsCurrentInstanceTCS.TrySetResult();
 						_updateDateDisplayTimer?.Start();
-						ShellViewModel?.UpdateDateDisplay();
+						// Refresh dates after the selected page has had a chance to render.
+						if (!_dateDisplayRefreshPending)
+						{
+							_dateDisplayRefreshPending = DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+							{
+								_dateDisplayRefreshPending = false;
+								if (IsCurrentInstance && !App.AppModel.IsMainWindowClosed)
+									ShellViewModel?.UpdateDateDisplay();
+							});
+						}
 					}
 					else
 					{
